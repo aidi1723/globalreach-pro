@@ -90,6 +90,12 @@ GLOBALREACH_ENABLE_LEGACY_LOCAL_LICENSE=1
 
 ## Testing
 
+Install the full development/test dependency set before running the full suite:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
 Core non-GUI tests:
 
 ```bash
@@ -102,7 +108,7 @@ Full test suite:
 python -m pytest
 ```
 
-The full suite imports Tk-based controllers. It requires a Python runtime where `import tkinter` works.
+The full suite includes Tk-based controller tests. If the active Python runtime cannot import `tkinter`, those controller tests are skipped; use a Python build with Tk support to exercise them locally.
 
 ## Packaging
 
