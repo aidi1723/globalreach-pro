@@ -1,0 +1,54 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local package caches
+.venv/
+.build-venv/
+venv/
+env/
+.uv-cache/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+.nuitka-cache/
+.pyinstaller-cache/
+*.spec
+*.dmg
+*.pkg
+*.exe
+*.app/
+
+# Runtime databases and local state
+app/storage/*.db
+app/storage/*.sqlite
+app/storage/*.sqlite3
+license-platform/data/
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!license-platform/.env.example
+
+# Logs, reports, and local diagnostics
+*.log
+nuitka-crash-report.xml
+
+# Local reference material not needed for source releases
+参考.png
+开发说明.rtf
