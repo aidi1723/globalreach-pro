@@ -18,7 +18,20 @@ sys.path.insert(0, sys.argv[1])
 
 from app.main import app
 
-paths = sorted(route.path for route in app.routes)
+def collect_route_paths(routes, prefix=""):
+    paths = []
+    for route in routes:
+        path = getattr(route, "path", None)
+        if path is not None:
+            paths.append(f"{prefix}{path}")
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            include_context = getattr(route, "include_context", None)
+            child_prefix = getattr(include_context, "prefix", "") if include_context else ""
+            paths.extend(collect_route_paths(original_router.routes, f"{prefix}{child_prefix}"))
+    return paths
+
+paths = sorted(collect_route_paths(app.routes))
 print(json.dumps({
     "has_console_login": "/console/login" in paths,
     "has_console_home": "/console" in paths,
@@ -33,11 +46,12 @@ print(json.dumps({
 
     result = subprocess.run(
         [sys.executable, "-c", code, str(api_root)],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         env={**os.environ, "LICENSE_PLATFORM_DATABASE_URL": f"sqlite:///{db_path}"},
     )
+    assert result.returncode == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout.strip())
     assert payload["has_console_login"] is True
     assert payload["has_console_home"] is True
