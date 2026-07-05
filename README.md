@@ -29,6 +29,14 @@ This project is not a full email marketing platform. It does not provide unsubsc
 - `docs/` - design and deployment notes.
 - `license-platform/` - optional FastAPI-based license server MVP.
 
+## Maintainer Documents
+
+- `CHANGELOG.md` - public release log.
+- `MAINTENANCE.md` - maintenance tracks, verification commands, and release path.
+- `RELEASE_HANDOFF.md` - current open-source handoff status and residual risks.
+- `OPEN_SOURCE_CHECKLIST.md` - release readiness checklist.
+- `SECURITY.md` - sensitive-data and responsible-use policy.
+
 ## Requirements
 
 Desktop app:
@@ -122,13 +130,19 @@ Generated artifacts under `dist/`, `build/`, `.nuitka-cache/`, and `.pyinstaller
 
 ## Open-Source Release Notes
 
-Before publishing:
+Before release tags or binary publication:
 
 - Confirm GPL-3.0 remains the intended license for the public release.
 - Do not commit `app/storage/*.db` or `license-platform/data/`.
 - Do not commit SMTP credentials, AI API keys, license keys, activation tokens, customer data, lead lists, or send history.
 - Review `OPEN_SOURCE_CHECKLIST.md`.
 - Review `SECURITY.md`.
+
+After publishing:
+
+- Keep user-visible changes in `CHANGELOG.md`.
+- Follow `MAINTENANCE.md` before release tags or binary builds.
+- Keep `RELEASE_HANDOFF.md` updated when the publication status materially changes.
 
 ## License
 

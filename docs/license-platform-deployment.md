@@ -162,6 +162,7 @@ From the repository root:
 
 ## Current Known Gaps
 
-- No full admin web console yet
+- The admin console is server-rendered and functional for MVP operations, but there is no separate SPA admin application yet.
+- No dedicated license detail page, activation detail page, or audit-log page yet.
 - No offline grace-period policy in the client yet
 - No SQLAlchemy model metadata or autogenerate workflow yet

@@ -86,11 +86,12 @@ python tools/build_desktop.py --target windows --backend nuitka --clean
 
 - 内部测试：优先发 `.app` 或 `.exe`
 - 正式客户：macOS 发 `.dmg`，Windows 发 `.exe`
-- 首次打开时走现有线上授权流程，输入激活码即可
+- 如果配置了线上授权地址，首次打开时走服务端授权流程，输入激活码即可
+- 如果未配置线上授权地址，GPLv3 源码版本默认以开源模式运行
 
 ## 构建前检查
 
 - 本机已安装 Python 虚拟环境依赖
-- 线上授权地址已配置
+- 如需商业授权分发，线上授权地址已配置
 - macOS 打包机可正常运行 `hdiutil`
 - 需要发给客户前，先在干净账户或另一台机器做一次完整激活验证

@@ -2,7 +2,7 @@
 
 ## Supported Status
 
-This project is being prepared for open-source release. Treat the current codebase as pre-release until a public version and license are declared.
+This project has been published as GPLv3 open source. Treat the current codebase as an initial public release unless a formal version tag says otherwise.
 
 ## Sensitive Data
 
@@ -33,4 +33,4 @@ This tool sends email through user-provided SMTP accounts. Operators are respons
 
 ## Reporting Issues
 
-For now, report security issues privately to the repository owner after the public repository is created. Do not file public issues containing secrets, credentials, customer data, or exploit details.
+Report security issues privately to the repository owner. Use GitHub private vulnerability reporting if it is enabled for the repository; otherwise contact the owner privately before opening a public issue. Do not file public issues containing secrets, credentials, customer data, or exploit details.

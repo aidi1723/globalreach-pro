@@ -19,10 +19,10 @@ The current client still supports two runtime modes:
 
 1. If `GLOBALREACH_LICENSE_API_BASE_URL` and `GLOBALREACH_LICENSE_PRODUCT_CODE` are configured,
    use server-mode activation.
-2. Otherwise, fall back to the current local activation algorithm.
+2. Otherwise, enter open-source mode by default.
 
-This dual-mode behavior exists for transition compatibility.
-It should not be interpreted as "both modes are equal production options".
+Legacy local activation exists only for private backward compatibility and must be explicitly enabled with `GLOBALREACH_ENABLE_LEGACY_LOCAL_LICENSE=1`.
+It should not be interpreted as a normal public or commercial activation path.
 
 ## Current Client Files
 
@@ -47,6 +47,7 @@ It should not be interpreted as "both modes are equal production options".
 
 - `GLOBALREACH_LICENSE_API_BASE_URL`
 - `GLOBALREACH_LICENSE_PRODUCT_CODE`
+- `GLOBALREACH_ENABLE_LEGACY_LOCAL_LICENSE` for private legacy fallback only
 
 ## Next Implementation Steps
 
@@ -58,7 +59,8 @@ It should not be interpreted as "both modes are equal production options".
 
 ## Current Integration Reality
 
-- The email tool client can already switch between local activation and server mode.
+- The email tool client can already switch between open-source mode and server mode.
+- Legacy local activation is disabled by default and is only available through `GLOBALREACH_ENABLE_LEGACY_LOCAL_LICENSE=1`.
 - The standalone `license-platform` MVP already exposes aligned activate, validate, release, and admin endpoints.
 - A local end-to-end check can now be run with `tools/license_server_e2e.py`.
 - Production deployment is still a separate step; local integration success does not mean the public server is already online.

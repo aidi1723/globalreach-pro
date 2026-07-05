@@ -13,20 +13,20 @@ This project is intended to serve:
 - `apps/api`
   Public and admin API service
 - `apps/admin`
-  Admin console placeholder and frontend notes
+  Admin console notes. The current MVP uses server-rendered console pages from `apps/api`.
 - `packages/sdk`
-  Shared client SDK placeholder
+  Future shared client SDK notes
 - `database`
   SQL schema and migration bootstrap notes
 
-## Planned Stack
+## Runtime Stack
 
 - Python 3.11+
 - FastAPI
-- SQLAlchemy / SQLModel
-- PostgreSQL
+- SQLite for local development or single-node MVP deployments
+- PostgreSQL for production-style deployments
 - Alembic
-- Jinja2 or separate frontend admin
+- Jinja2 server-rendered admin console
 
 ## First Milestones
 
@@ -44,6 +44,8 @@ Implemented:
 - Alembic migration scaffold and migration runner
 - admin create/list/disable/extend/reset endpoints
 - public activate/validate/release endpoints
+- server-rendered login page and admin dashboard at `/console/login` and `/console`
+- product management, license creation, batch license actions, CSV export, and backup export in the console
 - development run script
 - seed script for demo licenses
 
