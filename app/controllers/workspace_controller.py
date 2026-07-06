@@ -8,6 +8,7 @@ from app.services.ai_writer import AISettings, generate_email_draft, generate_su
 from app.services.batch_sender import (
     BatchProgress,
     BatchSendSettings,
+    GovernanceSettings,
     run_batch_send,
 )
 from app.services.domain_auth import (
@@ -347,7 +348,7 @@ def run_preflight(app, silent=False):
         app.add_log("预检完成，已输出名单质量和模板检查结果。")
 
 
-def start_batch_send(app):
+def start_batch_send(app, resume_task_id=None):
     if not app.dataset:
         messagebox.showinfo("提示", "请先导入名单。")
         return
@@ -362,17 +363,25 @@ def start_batch_send(app):
 
     try:
         send_settings = _collect_batch_settings(app)
+        governance_settings = _collect_governance_settings(app)
     except ValueError as exc:
         messagebox.showerror("发送配置错误", str(exc))
         return
 
     app.send_stop_event.clear()
+    app.send_pause_event.clear()
     ai_settings = app.collect_ai_settings()
     template = app.get_template_text()
-    task_label = f"Batch {Path(app.dataset.source_path).name} {datetime.now().strftime('%H%M%S')}"
+    if resume_task_id is None:
+        task_label = f"Batch {Path(app.dataset.source_path).name} {datetime.now().strftime('%H%M%S')}"
+    else:
+        task = app.storage.get_send_task(int(resume_task_id))
+        task_label = task["label"] if task else f"Resume task {resume_task_id}"
     app.task_status_box.delete("0.0", "end")
-    app.task_status_box.insert("0.0", "任务状态：准备启动...\n")
-    app.add_log(f"准备启动批量发送任务：{task_label}")
+    status_message = "任务状态：准备恢复...\n" if resume_task_id is not None else "任务状态：准备启动...\n"
+    app.task_status_box.insert("0.0", status_message)
+    log_action = "准备恢复批量发送任务" if resume_task_id is not None else "准备启动批量发送任务"
+    app.add_log(f"{log_action}：{task_label}")
 
     def worker():
         try:
@@ -386,6 +395,9 @@ def start_batch_send(app):
                 stop_event=app.send_stop_event,
                 attachment_paths=app.smtp_attachment_paths,
                 settings=send_settings,
+                governance=governance_settings,
+                pause_event=app.send_pause_event,
+                resume_task_id=resume_task_id,
                 progress_callback=lambda progress: app.after(
                     0, lambda p=progress: app._handle_batch_progress(p)
                 ),
@@ -396,6 +408,22 @@ def start_batch_send(app):
 
     app.send_thread = threading.Thread(target=worker, daemon=True)
     app.send_thread.start()
+
+
+def pause_batch_send(app):
+    app.send_pause_event.set()
+    app.add_log("已请求暂停当前批量发送任务。", level="WARN")
+    app.task_status_box.insert("end", "已请求暂停任务，等待当前发送完成...\n")
+    app.task_status_box.see("end")
+
+
+def resume_batch_send(app):
+    task = app.storage.latest_send_task()
+    if not task or task["status"] != "paused":
+        messagebox.showinfo("提示", "最近没有可恢复的暂停任务。")
+        return
+    app.send_pause_event.clear()
+    app.start_batch_send(resume_task_id=int(task["id"]))
 
 
 def stop_batch_send(app):
@@ -518,4 +546,21 @@ def _collect_batch_settings(app) -> BatchSendSettings:
         per_email_delay_seconds=per_email_delay_seconds,
         max_retries=max_retries,
         retry_backoff_seconds=max(1.0, per_email_delay_seconds or 1.0),
+    )
+
+
+def _collect_governance_settings(app) -> GovernanceSettings:
+    daily_value = app.daily_limit_entry.get().strip() or "0"
+    hourly_value = app.hourly_limit_entry.get().strip() or "0"
+
+    if not daily_value.isdigit() or not hourly_value.isdigit():
+        raise ValueError("发送上限必须是非负整数。")
+
+    daily_limit = int(daily_value)
+    hourly_limit = int(hourly_value)
+    app.storage.set_state("daily_limit_per_account", str(daily_limit))
+    app.storage.set_state("hourly_limit_per_account", str(hourly_limit))
+    return GovernanceSettings(
+        daily_limit_per_account=daily_limit,
+        hourly_limit_per_account=hourly_limit,
     )

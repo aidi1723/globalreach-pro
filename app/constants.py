@@ -72,5 +72,10 @@ BATCH_STATE_KEYS = [
     "batch_max_retries",
 ]
 
+GOVERNANCE_STATE_KEYS = [
+    "daily_limit_per_account",
+    "hourly_limit_per_account",
+]
+
 DEFAULT_BATCH_DELAY_SECONDS = "1"
 DEFAULT_BATCH_MAX_RETRIES = "1"

@@ -764,8 +764,10 @@ def setup_preview_tab(app):
     task_frame.grid_columnconfigure(0, weight=1)
     task_frame.grid_columnconfigure(1, weight=1)
     task_frame.grid_columnconfigure(2, weight=1)
+    task_frame.grid_columnconfigure(3, weight=1)
+    task_frame.grid_columnconfigure(4, weight=1)
     ctk.CTkLabel(task_frame, text="批量发送任务", font=("Arial", 13, "bold")).grid(
-        row=0, column=0, columnspan=3, sticky="w", padx=12, pady=(10, 6)
+        row=0, column=0, columnspan=5, sticky="w", padx=12, pady=(10, 6)
     )
     app.task_status_box = ctk.CTkTextbox(
         task_frame,
@@ -774,11 +776,11 @@ def setup_preview_tab(app):
         font=("Menlo", 11),
         text_color="#D6D6D6",
     )
-    app.task_status_box.grid(row=1, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
+    app.task_status_box.grid(row=1, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8))
     app.task_status_box.insert("0.0", "任务状态：等待启动。\n")
 
     task_settings = ctk.CTkFrame(task_frame, fg_color="transparent")
-    task_settings.grid(row=2, column=0, columnspan=3, sticky="ew", padx=12, pady=(0, 8))
+    task_settings.grid(row=2, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8))
     task_settings.grid_columnconfigure(1, weight=1)
     task_settings.grid_columnconfigure(3, weight=1)
     ctk.CTkLabel(task_settings, text="发送间隔(秒)", font=("Arial", 12)).grid(
@@ -791,25 +793,52 @@ def setup_preview_tab(app):
     )
     app.batch_retries_entry = ctk.CTkEntry(task_settings)
     app.batch_retries_entry.grid(row=0, column=3, sticky="ew", padx=(10, 0), pady=4)
+    ctk.CTkLabel(task_settings, text="每日/账号", font=("Arial", 12)).grid(
+        row=1, column=0, sticky="w", pady=4
+    )
+    app.daily_limit_entry = ctk.CTkEntry(task_settings)
+    app.daily_limit_entry.grid(row=1, column=1, sticky="ew", padx=(10, 18), pady=4)
+    ctk.CTkLabel(task_settings, text="每小时/账号", font=("Arial", 12)).grid(
+        row=1, column=2, sticky="w", pady=4
+    )
+    app.hourly_limit_entry = ctk.CTkEntry(task_settings)
+    app.hourly_limit_entry.grid(row=1, column=3, sticky="ew", padx=(10, 0), pady=4)
 
     ctk.CTkButton(
         task_frame,
         text="开始批量发送",
+        width=82,
         fg_color="#3A7A47",
         command=app.start_batch_send,
-    ).grid(row=3, column=0, sticky="w", padx=(12, 6), pady=(0, 10))
+    ).grid(row=3, column=0, sticky="ew", padx=(12, 4), pady=(0, 10))
     ctk.CTkButton(
         task_frame,
         text="停止当前任务",
+        width=82,
         fg_color="#8A3B3B",
         command=app.stop_batch_send,
-    ).grid(row=3, column=1, sticky="w", padx=6, pady=(0, 10))
+    ).grid(row=3, column=1, sticky="ew", padx=4, pady=(0, 10))
+    ctk.CTkButton(
+        task_frame,
+        text="暂停任务",
+        width=82,
+        fg_color="#B45309",
+        command=app.pause_batch_send,
+    ).grid(row=3, column=2, sticky="ew", padx=4, pady=(0, 10))
+    ctk.CTkButton(
+        task_frame,
+        text="恢复任务",
+        width=82,
+        fg_color="#5A6472",
+        command=app.resume_batch_send,
+    ).grid(row=3, column=3, sticky="ew", padx=4, pady=(0, 10))
     ctk.CTkButton(
         task_frame,
         text="刷新任务结果",
+        width=82,
         fg_color="#1F538D",
         command=app.refresh_task_results,
-    ).grid(row=3, column=2, sticky="w", padx=6, pady=(0, 10))
+    ).grid(row=3, column=4, sticky="ew", padx=(4, 12), pady=(0, 10))
 
 
 def setup_smtp_tab(app):

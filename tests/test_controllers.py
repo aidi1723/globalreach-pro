@@ -9,6 +9,7 @@ sys.modules.setdefault("tkinter.filedialog", fake_tkinter.filedialog)
 sys.modules.setdefault("tkinter.messagebox", fake_tkinter.messagebox)
 
 from app.controllers import state_controller, workspace_controller
+from app.services.batch_sender import GovernanceSettings
 from tests.helpers import make_dataset
 
 
@@ -74,6 +75,9 @@ class FakeStorage:
     def get_state(self, key):
         return self.values.get(key)
 
+    def set_state(self, key, value):
+        self.values[key] = value
+
 
 class FakeStateApp:
     def __init__(self, values):
@@ -86,6 +90,8 @@ class FakeStateApp:
         self.ai_offer_entry = FakeEntry()
         self.ai_cta_entry = FakeEntry()
         self.ai_signature_entry = FakeEntry()
+        self.daily_limit_entry = FakeEntry()
+        self.hourly_limit_entry = FakeEntry()
 
         self.smtp_preset_var = FakeVar()
         self.smtp_security_var = FakeVar()
@@ -162,6 +168,16 @@ def test_load_ai_state_overwrites_entries_instead_of_appending():
     assert app.ai_signature_entry.get() == "Alice"
 
 
+def test_load_governance_state_defaults_to_zero_and_overwrites_entries():
+    app = FakeStateApp({})
+
+    state_controller.load_governance_state(app)
+    state_controller.load_governance_state(app)
+
+    assert app.daily_limit_entry.get() == "0"
+    assert app.hourly_limit_entry.get() == "0"
+
+
 def test_load_smtp_state_overwrites_entries_instead_of_appending():
     app = FakeStateApp(
         {
@@ -194,6 +210,43 @@ def test_load_smtp_state_overwrites_entries_instead_of_appending():
     assert app.smtp_subject_entry.get() == "SMTP Test"
     assert app.smtp_security_var.get() == "starttls"
     assert app.smtp_attachment_paths == ["/tmp/catalog.pdf"]
+
+
+def test_collect_governance_settings_persists_valid_limits():
+    app = types.SimpleNamespace(
+        daily_limit_entry=FakeEntry("25"),
+        hourly_limit_entry=FakeEntry("5"),
+        storage=FakeStorage({}),
+    )
+
+    settings = workspace_controller._collect_governance_settings(app)
+
+    assert settings == GovernanceSettings(25, 5)
+    assert app.storage.values["daily_limit_per_account"] == "25"
+    assert app.storage.values["hourly_limit_per_account"] == "5"
+
+
+def test_collect_governance_settings_rejects_invalid_limits():
+    invalid_apps = [
+        types.SimpleNamespace(
+            daily_limit_entry=FakeEntry("-1"),
+            hourly_limit_entry=FakeEntry("5"),
+            storage=FakeStorage({}),
+        ),
+        types.SimpleNamespace(
+            daily_limit_entry=FakeEntry("25"),
+            hourly_limit_entry=FakeEntry("abc"),
+            storage=FakeStorage({}),
+        ),
+    ]
+
+    for app in invalid_apps:
+        try:
+            workspace_controller._collect_governance_settings(app)
+        except ValueError as exc:
+            assert "发送上限必须是非负整数" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError for invalid governance limits")
 
 
 def test_run_preflight_reuses_existing_report_for_mapping_summary(monkeypatch):

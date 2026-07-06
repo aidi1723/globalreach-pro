@@ -7,6 +7,7 @@ from app.constants import (
     DEFAULT_BATCH_DELAY_SECONDS,
     DEFAULT_BATCH_MAX_RETRIES,
     DEFAULT_TEMPLATE,
+    GOVERNANCE_STATE_KEYS,
     SMTP_STATE_KEYS,
 )
 from app.services.ai_writer import AISettings
@@ -33,6 +34,7 @@ def load_persisted_state(app):
     app.load_watch_state()
     app.load_dedupe_state()
     load_batch_state(app)
+    load_governance_state(app)
     app.load_ai_state()
     app.load_smtp_state()
     app.refresh_task_results()
@@ -73,6 +75,20 @@ def load_batch_state(app):
     app._set_entry_value(
         app.batch_retries_entry,
         state.get("batch_max_retries", "") or DEFAULT_BATCH_MAX_RETRIES,
+    )
+
+
+def load_governance_state(app):
+    state = {key: app.storage.get_state(key) or "" for key in GOVERNANCE_STATE_KEYS}
+    _set_entry_value(
+        app,
+        app.daily_limit_entry,
+        state.get("daily_limit_per_account", "") or "0",
+    )
+    _set_entry_value(
+        app,
+        app.hourly_limit_entry,
+        state.get("hourly_limit_per_account", "") or "0",
     )
 
 

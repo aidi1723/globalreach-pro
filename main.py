@@ -65,6 +65,7 @@ from app.controllers.smtp_controller import (
 from app.controllers.state_controller import (
     load_ai_state,
     load_dedupe_state,
+    load_governance_state,
     load_persisted_state,
     load_smtp_state,
     load_watch_state,
@@ -81,6 +82,7 @@ from app.controllers.workspace_controller import (
     import_action,
     jump_to_preview,
     load_dataset,
+    pause_batch_send,
     refresh_duplicate_history,
     refresh_mapping_summary,
     refresh_subject_samples,
@@ -89,6 +91,7 @@ from app.controllers.workspace_controller import (
     reload_last_file,
     render_current_preview,
     reset_auto_mapping,
+    resume_batch_send,
     run_preflight,
     save_template_draft,
     show_next_preview,
@@ -291,6 +294,7 @@ class OutreachPro(ctk.CTk):
     load_dedupe_state = load_dedupe_state
     save_dedupe_policy = save_dedupe_policy
     load_ai_state = load_ai_state
+    load_governance_state = load_governance_state
     save_ai_settings = save_ai_settings
     load_smtp_state = load_smtp_state
     save_smtp_config = save_smtp_config
@@ -312,6 +316,8 @@ class OutreachPro(ctk.CTk):
     jump_to_preview = jump_to_preview
     run_preflight = run_preflight
     start_batch_send = start_batch_send
+    pause_batch_send = pause_batch_send
+    resume_batch_send = resume_batch_send
     stop_batch_send = stop_batch_send
     refresh_task_results = refresh_task_results
     _handle_batch_progress = _handle_batch_progress
@@ -382,6 +388,7 @@ class OutreachPro(ctk.CTk):
         self.active_sidebar_section = "workbench"
         self.active_task_id = None
         self.send_stop_event = threading.Event()
+        self.send_pause_event = threading.Event()
         self.send_thread = None
         self.dedupe_policy_var = tk.StringVar(value="review")
 
