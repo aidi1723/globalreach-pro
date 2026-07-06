@@ -77,6 +77,7 @@ from app.controllers.workspace_controller import (
     _handle_batch_error,
     _handle_batch_finish,
     _handle_batch_progress,
+    add_suppression_entry_from_ui,
     apply_mapping_from_ui,
     generate_current_preview,
     import_action,
@@ -84,8 +85,10 @@ from app.controllers.workspace_controller import (
     load_dataset,
     pause_batch_send,
     refresh_duplicate_history,
+    refresh_governance_summary,
     refresh_mapping_summary,
     refresh_subject_samples,
+    refresh_suppression_list,
     refresh_task_results,
     refresh_template_metadata,
     reload_last_file,
@@ -99,6 +102,7 @@ from app.controllers.workspace_controller import (
     start_batch_send,
     stop_batch_send,
     sync_preview_to_smtp,
+    remove_suppression_entry_from_ui,
 )
 from app.services.ai_writer import AISettings
 from app.services.folder_watch import FolderWatcher
@@ -315,6 +319,10 @@ class OutreachPro(ctk.CTk):
     show_next_preview = show_next_preview
     jump_to_preview = jump_to_preview
     run_preflight = run_preflight
+    refresh_governance_summary = refresh_governance_summary
+    refresh_suppression_list = refresh_suppression_list
+    add_suppression_entry_from_ui = add_suppression_entry_from_ui
+    remove_suppression_entry_from_ui = remove_suppression_entry_from_ui
     start_batch_send = start_batch_send
     pause_batch_send = pause_batch_send
     resume_batch_send = resume_batch_send

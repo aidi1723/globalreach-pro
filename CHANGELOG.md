@@ -7,6 +7,10 @@ This project currently uses date-based release notes until a formal semantic ver
 ## Unreleased
 
 - Completed handoff, roadmap, and sending-governance documentation updates after the `v0.2.0` tag.
+- Added `DESIGN.md` as the desktop UI design baseline.
+- Added a preflight/send governance summary panel.
+- Added basic desktop suppression-list controls for manual add, remove, refresh, count, and list review.
+- Added a compact task summary label above batch-send task logs.
 
 ## 2026-07-06 - v0.2.0 Sending Governance Release
 

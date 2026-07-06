@@ -34,6 +34,7 @@ This project is not a full email marketing platform. It does not provide unsubsc
 ## Maintainer Documents
 
 - `CHANGELOG.md` - public release log.
+- `DESIGN.md` - desktop UI design baseline.
 - `MAINTENANCE.md` - maintenance tracks, verification commands, and release path.
 - `RELEASE_HANDOFF.md` - current open-source handoff status and residual risks.
 - `ROADMAP.md` - next development phases and recommended direction.

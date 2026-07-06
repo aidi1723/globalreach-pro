@@ -646,6 +646,24 @@ def setup_preview_tab(app):
         command=app.sync_preview_to_smtp,
     ).pack(side="left")
 
+    governance_frame = ctk.CTkFrame(parent, fg_color=APP_PANEL_ALT, border_width=1, border_color=APP_BORDER)
+    governance_frame.pack(fill="x", padx=15, pady=(0, 8))
+    governance_frame.grid_columnconfigure(0, weight=1)
+    ctk.CTkLabel(
+        governance_frame,
+        text="发送治理摘要",
+        font=("Arial", 13, "bold"),
+    ).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 6))
+    app.governance_summary_box = ctk.CTkTextbox(
+        governance_frame,
+        height=104,
+        fg_color="#101010",
+        font=("Menlo", 11),
+        text_color="#D6D6D6",
+    )
+    app.governance_summary_box.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+    app.governance_summary_box.insert("0.0", "发送治理摘要：等待刷新。\n")
+
     attachment_frame = ctk.CTkFrame(parent, fg_color=APP_PANEL_ALT, border_width=1, border_color=APP_BORDER)
     attachment_frame.pack(fill="x", padx=15, pady=(0, 8))
     attachment_header = ctk.CTkFrame(attachment_frame, fg_color="transparent")
@@ -746,7 +764,7 @@ def setup_preview_tab(app):
         dedupe_frame,
         values=["review", "skip", "send"],
         variable=app.dedupe_policy_var,
-        command=lambda _value: app.save_dedupe_policy(),
+        command=lambda _value: (app.save_dedupe_policy(), app.refresh_governance_summary()),
     )
     app.dedupe_policy_menu.grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=6)
     app.duplicate_history_box = ctk.CTkTextbox(
@@ -759,6 +777,68 @@ def setup_preview_tab(app):
     app.duplicate_history_box.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(4, 10))
     app.duplicate_history_box.insert("0.0", "这里会显示当前收件人的历史发信记录。\n")
 
+    suppression_frame = ctk.CTkFrame(parent, fg_color=APP_PANEL_ALT, border_width=1, border_color=APP_BORDER)
+    suppression_frame.pack(fill="x", padx=15, pady=(0, 10))
+    suppression_frame.grid_columnconfigure(1, weight=1)
+    suppression_frame.grid_columnconfigure(3, weight=1)
+    ctk.CTkLabel(suppression_frame, text="抑制名单", font=("Arial", 13, "bold")).grid(
+        row=0, column=0, columnspan=4, sticky="w", padx=12, pady=(10, 4)
+    )
+    app.suppression_count_label = ctk.CTkLabel(
+        suppression_frame,
+        text="抑制名单：0 条",
+        font=("Arial", 11),
+        text_color=APP_MUTED,
+    )
+    app.suppression_count_label.grid(row=1, column=0, columnspan=4, sticky="w", padx=12, pady=(0, 6))
+    ctk.CTkLabel(suppression_frame, text="邮箱", font=("Arial", 12)).grid(
+        row=2, column=0, sticky="w", padx=12, pady=4
+    )
+    app.suppression_email_entry = ctk.CTkEntry(suppression_frame)
+    app.suppression_email_entry.grid(row=2, column=1, sticky="ew", padx=(0, 12), pady=4)
+    ctk.CTkLabel(suppression_frame, text="原因", font=("Arial", 12)).grid(
+        row=2, column=2, sticky="w", padx=(0, 8), pady=4
+    )
+    app.suppression_reason_entry = ctk.CTkEntry(suppression_frame)
+    app.suppression_reason_entry.grid(row=2, column=3, sticky="ew", padx=(0, 12), pady=4)
+    ctk.CTkLabel(suppression_frame, text="来源", font=("Arial", 12)).grid(
+        row=3, column=0, sticky="w", padx=12, pady=4
+    )
+    app.suppression_source_entry = ctk.CTkEntry(suppression_frame)
+    app.suppression_source_entry.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=4)
+    suppression_actions = ctk.CTkFrame(suppression_frame, fg_color="transparent")
+    suppression_actions.grid(row=3, column=2, columnspan=2, sticky="e", padx=12, pady=4)
+    ctk.CTkButton(
+        suppression_actions,
+        text="加入",
+        width=64,
+        fg_color="#3A7A47",
+        command=app.add_suppression_entry_from_ui,
+    ).pack(side="left")
+    ctk.CTkButton(
+        suppression_actions,
+        text="移除",
+        width=64,
+        fg_color="#8A3B3B",
+        command=app.remove_suppression_entry_from_ui,
+    ).pack(side="left", padx=8)
+    ctk.CTkButton(
+        suppression_actions,
+        text="刷新",
+        width=64,
+        fg_color="#5A6472",
+        command=app.refresh_suppression_list,
+    ).pack(side="left")
+    app.suppression_list_box = ctk.CTkTextbox(
+        suppression_frame,
+        height=86,
+        fg_color="#101010",
+        font=("Menlo", 11),
+        text_color="#D6D6D6",
+    )
+    app.suppression_list_box.grid(row=4, column=0, columnspan=4, sticky="ew", padx=12, pady=(4, 10))
+    app.suppression_list_box.insert("0.0", "暂无抑制名单记录。\n")
+
     task_frame = ctk.CTkFrame(parent, fg_color=APP_PANEL_ALT, border_width=1, border_color=APP_BORDER)
     task_frame.pack(fill="x", padx=15, pady=(0, 10))
     task_frame.grid_columnconfigure(0, weight=1)
@@ -769,6 +849,14 @@ def setup_preview_tab(app):
     ctk.CTkLabel(task_frame, text="批量发送任务", font=("Arial", 13, "bold")).grid(
         row=0, column=0, columnspan=5, sticky="w", padx=12, pady=(10, 6)
     )
+    app.task_summary_label = ctk.CTkLabel(
+        task_frame,
+        text="任务摘要：等待启动",
+        font=("Arial", 11),
+        text_color=APP_MUTED,
+        anchor="w",
+    )
+    app.task_summary_label.grid(row=1, column=0, columnspan=5, sticky="w", padx=12, pady=(0, 4))
     app.task_status_box = ctk.CTkTextbox(
         task_frame,
         height=64,
@@ -776,11 +864,11 @@ def setup_preview_tab(app):
         font=("Menlo", 11),
         text_color="#D6D6D6",
     )
-    app.task_status_box.grid(row=1, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8))
+    app.task_status_box.grid(row=2, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8))
     app.task_status_box.insert("0.0", "任务状态：等待启动。\n")
 
     task_settings = ctk.CTkFrame(task_frame, fg_color="transparent")
-    task_settings.grid(row=2, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8))
+    task_settings.grid(row=3, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8))
     task_settings.grid_columnconfigure(1, weight=1)
     task_settings.grid_columnconfigure(3, weight=1)
     ctk.CTkLabel(task_settings, text="发送间隔(秒)", font=("Arial", 12)).grid(
@@ -810,35 +898,37 @@ def setup_preview_tab(app):
         width=82,
         fg_color="#3A7A47",
         command=app.start_batch_send,
-    ).grid(row=3, column=0, sticky="ew", padx=(12, 4), pady=(0, 10))
+    ).grid(row=4, column=0, sticky="ew", padx=(12, 4), pady=(0, 10))
     ctk.CTkButton(
         task_frame,
         text="停止当前任务",
         width=82,
         fg_color="#8A3B3B",
         command=app.stop_batch_send,
-    ).grid(row=3, column=1, sticky="ew", padx=4, pady=(0, 10))
+    ).grid(row=4, column=1, sticky="ew", padx=4, pady=(0, 10))
     ctk.CTkButton(
         task_frame,
         text="暂停任务",
         width=82,
         fg_color="#B45309",
         command=app.pause_batch_send,
-    ).grid(row=3, column=2, sticky="ew", padx=4, pady=(0, 10))
+    ).grid(row=4, column=2, sticky="ew", padx=4, pady=(0, 10))
     ctk.CTkButton(
         task_frame,
         text="恢复任务",
         width=82,
         fg_color="#5A6472",
         command=app.resume_batch_send,
-    ).grid(row=3, column=3, sticky="ew", padx=4, pady=(0, 10))
+    ).grid(row=4, column=3, sticky="ew", padx=4, pady=(0, 10))
     ctk.CTkButton(
         task_frame,
         text="刷新任务结果",
         width=82,
         fg_color="#1F538D",
         command=app.refresh_task_results,
-    ).grid(row=3, column=4, sticky="ew", padx=(4, 12), pady=(0, 10))
+    ).grid(row=4, column=4, sticky="ew", padx=(4, 12), pady=(0, 10))
+
+    app.refresh_suppression_list()
 
 
 def setup_smtp_tab(app):

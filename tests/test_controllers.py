@@ -96,6 +96,31 @@ class FakeWorkspaceStorage(FakeStorage):
         return [{"label": "acc-1"}]
 
 
+class FakeGovernanceStorage(FakeWorkspaceStorage):
+    def __init__(self, values=None, latest_task=None):
+        super().__init__(values=values or {}, latest_task=latest_task)
+        self.suppression_entries = {}
+
+    def upsert_suppression_entry(self, recipient_email, reason, source):
+        entry = {
+            "recipient_email": recipient_email,
+            "reason": reason,
+            "source": source,
+            "created_at": "2026-07-06T10:00:00",
+        }
+        self.suppression_entries[recipient_email] = entry
+        return entry
+
+    def delete_suppression_entry(self, recipient_email):
+        self.suppression_entries.pop(recipient_email, None)
+
+    def get_suppression_entry(self, recipient_email):
+        return self.suppression_entries.get(recipient_email)
+
+    def list_suppression_entries(self):
+        return list(self.suppression_entries.values())
+
+
 class FakeStateApp:
     def __init__(self, values):
         self.storage = FakeStorage(values)
@@ -475,3 +500,112 @@ def test_run_preflight_reuses_existing_report_for_mapping_summary(monkeypatch):
     assert calls["count"] == 1
     assert "有效邮箱数: 1" in app.preflight_box.get()
     assert "1 条有效邮箱" in app.dataset_stats_label.kwargs["text"]
+
+
+def test_refresh_governance_summary_shows_limits_suppression_count_and_latest_task():
+    storage = FakeGovernanceStorage(
+        latest_task={
+            "id": "7",
+            "label": "Batch leads 101500",
+            "status": "paused",
+            "total_count": "5",
+        }
+    )
+    storage.upsert_suppression_entry("blocked@example.com", "unsubscribe", "manual")
+    app = types.SimpleNamespace(
+        storage=storage,
+        dedupe_policy_var=FakeVar("skip"),
+        daily_limit_entry=FakeEntry("25"),
+        hourly_limit_entry=FakeEntry("5"),
+        governance_summary_box=FakeTextBox(),
+    )
+
+    workspace_controller.refresh_governance_summary(app)
+
+    summary = app.governance_summary_box.get()
+    assert "重复策略: skip" in summary
+    assert "每日/账号: 25" in summary
+    assert "每小时/账号: 5" in summary
+    assert "抑制名单: 1" in summary
+    assert "最近任务: paused | Batch leads 101500" in summary
+
+
+def test_add_suppression_entry_from_ui_saves_and_refreshes(monkeypatch):
+    messagebox_calls = []
+    app = types.SimpleNamespace(
+        storage=FakeGovernanceStorage(),
+        suppression_email_entry=FakeEntry(" Buyer <Blocked@Example.com> "),
+        suppression_reason_entry=FakeEntry("unsubscribe"),
+        suppression_source_entry=FakeEntry("manual"),
+        suppression_count_label=FakeLabel(),
+        suppression_list_box=FakeTextBox(),
+        governance_summary_box=FakeTextBox(),
+        dedupe_policy_var=FakeVar("review"),
+        daily_limit_entry=FakeEntry("0"),
+        hourly_limit_entry=FakeEntry("0"),
+        logs=[],
+    )
+    app.add_log = lambda message, level="INFO": app.logs.append((message, level))
+    monkeypatch.setattr(
+        workspace_controller.messagebox,
+        "showerror",
+        lambda title, message: messagebox_calls.append((title, message)),
+        raising=False,
+    )
+
+    workspace_controller.add_suppression_entry_from_ui(app)
+
+    assert messagebox_calls == []
+    assert "blocked@example.com" in app.storage.suppression_entries
+    assert app.suppression_email_entry.get() == ""
+    assert "抑制名单：1 条" == app.suppression_count_label.kwargs["text"]
+    assert "blocked@example.com | unsubscribe | manual" in app.suppression_list_box.get()
+    assert "抑制名单: 1" in app.governance_summary_box.get()
+    assert any("已加入抑制名单" in message for message, _level in app.logs)
+
+
+def test_add_suppression_entry_from_ui_rejects_invalid_email(monkeypatch):
+    messagebox_calls = []
+    app = types.SimpleNamespace(
+        storage=FakeGovernanceStorage(),
+        suppression_email_entry=FakeEntry("not-an-email"),
+        suppression_reason_entry=FakeEntry("unsubscribe"),
+        suppression_source_entry=FakeEntry("manual"),
+    )
+    monkeypatch.setattr(
+        workspace_controller.messagebox,
+        "showerror",
+        lambda title, message: messagebox_calls.append((title, message)),
+        raising=False,
+    )
+
+    workspace_controller.add_suppression_entry_from_ui(app)
+
+    assert app.storage.suppression_entries == {}
+    assert messagebox_calls == [("抑制名单错误", "请输入有效的收件人邮箱。")]
+
+
+def test_remove_suppression_entry_from_ui_deletes_and_refreshes():
+    storage = FakeGovernanceStorage()
+    storage.upsert_suppression_entry("blocked@example.com", "unsubscribe", "manual")
+    app = types.SimpleNamespace(
+        storage=storage,
+        suppression_email_entry=FakeEntry("blocked@example.com"),
+        suppression_count_label=FakeLabel(),
+        suppression_list_box=FakeTextBox(),
+        governance_summary_box=FakeTextBox(),
+        dedupe_policy_var=FakeVar("review"),
+        daily_limit_entry=FakeEntry("0"),
+        hourly_limit_entry=FakeEntry("0"),
+        logs=[],
+    )
+    app.add_log = lambda message, level="INFO": app.logs.append((message, level))
+
+    workspace_controller.remove_suppression_entry_from_ui(app)
+
+    assert storage.suppression_entries == {}
+    assert app.suppression_email_entry.get() == ""
+    assert "抑制名单：0 条" == app.suppression_count_label.kwargs["text"]
+    assert "暂无抑制名单记录" in app.suppression_list_box.get()
+    assert "抑制名单: 0" in app.governance_summary_box.get()
+    assert any("已从抑制名单移除" in message for message, _level in app.logs)

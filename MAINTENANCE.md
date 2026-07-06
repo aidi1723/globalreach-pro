@@ -83,6 +83,7 @@ Key paths:
 
 - `README.md`
 - `CHANGELOG.md`
+- `DESIGN.md`
 - `RELEASE_HANDOFF.md`
 - `ROADMAP.md`
 - `OPEN_SOURCE_CHECKLIST.md`
@@ -140,7 +141,7 @@ Expected result:
 These are not blockers for the current open-source release, but they are the next responsible maintenance items:
 
 - add OS keychain/keyring storage for SMTP account-pool passwords
-- add a desktop suppression-list management screen for import/export/add/remove/search
+- expand the desktop suppression-list screen with CSV import/export/search/bulk review
 - validate suppression-list and pause/resume behavior with a real desktop install before public binary distribution
 - add screenshots using fake data only
 - add a sample lead CSV with fake data

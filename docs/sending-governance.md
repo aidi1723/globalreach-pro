@@ -63,8 +63,10 @@ The desktop batch-send panel exposes:
 - `暂停任务` to pause after the current send or during the inter-email delay.
 - `恢复任务` to resume the latest paused task for the currently loaded dataset.
 - `停止当前任务` as a terminal operator action.
+- A governance summary panel showing duplicate policy, quota settings, suppression count, and latest task status.
+- A basic suppression-list panel for manual add, remove, refresh, count, and compact list review.
 
-The suppression service exists in the code and storage layer, but there is no dedicated desktop suppression-list management screen yet. Until that UI is added, suppression entries should be managed through code-backed tooling or future maintenance scripts.
+CSV import/export, search, and bulk suppression management remain follow-up UI items.
 
 ## Resume Rules
 

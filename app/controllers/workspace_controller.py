@@ -25,6 +25,7 @@ from app.services.importer import (
     load_leads,
 )
 from app.services.preflight import build_preflight_report, format_preflight_report
+from app.services.suppression import SuppressionService
 from app.services.template import (
     available_placeholders,
     extract_placeholders,
@@ -345,8 +346,93 @@ def run_preflight(app, silent=False):
     app.preflight_box.delete("0.0", "end")
     app.preflight_box.insert("0.0", report_text)
     app.refresh_mapping_summary(report=report)
+    refresh_governance_summary(app)
     if not silent:
         app.add_log("预检完成，已输出名单质量和模板检查结果。")
+
+
+def refresh_governance_summary(app):
+    if not hasattr(app, "governance_summary_box"):
+        return
+
+    try:
+        suppression_count = len(SuppressionService(app.storage).list_entries())
+    except Exception:
+        suppression_count = 0
+
+    latest_task = None
+    try:
+        latest_task = app.storage.latest_send_task()
+    except Exception:
+        latest_task = None
+
+    duplicate_policy = app.dedupe_policy_var.get().strip() if hasattr(app, "dedupe_policy_var") else "review"
+    daily_limit = app.daily_limit_entry.get().strip() if hasattr(app, "daily_limit_entry") else "0"
+    hourly_limit = app.hourly_limit_entry.get().strip() if hasattr(app, "hourly_limit_entry") else "0"
+    lines = [
+        "发送治理摘要",
+        f"重复策略: {duplicate_policy or 'review'}",
+        f"每日/账号: {daily_limit or '0'}",
+        f"每小时/账号: {hourly_limit or '0'}",
+        f"抑制名单: {suppression_count}",
+    ]
+    if latest_task:
+        lines.append(f"最近任务: {latest_task['status']} | {latest_task['label']}")
+    else:
+        lines.append("最近任务: 暂无")
+
+    app.governance_summary_box.delete("0.0", "end")
+    app.governance_summary_box.insert("0.0", "\n".join(lines) + "\n")
+
+
+def refresh_suppression_list(app):
+    if not hasattr(app, "suppression_list_box"):
+        refresh_governance_summary(app)
+        return
+
+    entries = SuppressionService(app.storage).list_entries()
+    if hasattr(app, "suppression_count_label"):
+        app.suppression_count_label.configure(text=f"抑制名单：{len(entries)} 条")
+
+    app.suppression_list_box.delete("0.0", "end")
+    if not entries:
+        app.suppression_list_box.insert("0.0", "暂无抑制名单记录。\n")
+    else:
+        lines = [
+            f"{entry.recipient_email} | {entry.reason or '-'} | {entry.source or '-'}"
+            for entry in entries
+        ]
+        app.suppression_list_box.insert("0.0", "\n".join(lines) + "\n")
+    refresh_governance_summary(app)
+
+
+def add_suppression_entry_from_ui(app):
+    recipient_email = app.suppression_email_entry.get().strip()
+    reason = app.suppression_reason_entry.get().strip()
+    source = app.suppression_source_entry.get().strip()
+    try:
+        entry = SuppressionService(app.storage).add(recipient_email, reason=reason, source=source)
+    except ValueError:
+        messagebox.showerror("抑制名单错误", "请输入有效的收件人邮箱。")
+        return
+
+    app.suppression_email_entry.delete(0, "end")
+    if hasattr(app, "add_log"):
+        app.add_log(f"已加入抑制名单：{entry.recipient_email}")
+    refresh_suppression_list(app)
+
+
+def remove_suppression_entry_from_ui(app):
+    recipient_email = app.suppression_email_entry.get().strip()
+    if not recipient_email:
+        messagebox.showerror("抑制名单错误", "请输入要移除的收件人邮箱。")
+        return
+
+    SuppressionService(app.storage).remove(recipient_email)
+    app.suppression_email_entry.delete(0, "end")
+    if hasattr(app, "add_log"):
+        app.add_log(f"已从抑制名单移除：{recipient_email}")
+    refresh_suppression_list(app)
 
 
 def start_batch_send(app, resume_task_id=None):
@@ -466,10 +552,22 @@ def refresh_task_results(app):
     task = app.storage.latest_send_task()
     app.task_status_box.delete("0.0", "end")
     if not task:
+        if hasattr(app, "task_summary_label"):
+            app.task_summary_label.configure(text="任务摘要：等待启动")
         app.task_status_box.insert("0.0", "任务状态：等待启动。\n")
+        refresh_governance_summary(app)
         return
     app.active_task_id = int(task["id"])
     status_counts = app.storage.summarize_task_results(app.active_task_id)
+    if hasattr(app, "task_summary_label"):
+        app.task_summary_label.configure(
+            text=(
+                f"任务摘要：{task['status']} | sent={status_counts.get('sent', 0)} "
+                f"failed={status_counts.get('failed', 0)} "
+                f"suppressed={status_counts.get('suppressed', 0)} "
+                f"rate_limited={status_counts.get('rate_limited', 0)}"
+            )
+        )
     header = (
         f"任务: {task['label']}\n"
         f"状态: {task['status']}\n"
@@ -489,6 +587,7 @@ def refresh_task_results(app):
         if item["error_message"]:
             line += f" | {item['error_message']}"
         app.task_status_box.insert("end", line + "\n")
+    refresh_governance_summary(app)
 
 
 def _handle_batch_progress(app, progress: BatchProgress):
@@ -589,6 +688,7 @@ def _collect_governance_settings(app) -> GovernanceSettings:
     hourly_limit = int(hourly_value)
     app.storage.set_state("daily_limit_per_account", str(daily_limit))
     app.storage.set_state("hourly_limit_per_account", str(hourly_limit))
+    refresh_governance_summary(app)
     return GovernanceSettings(
         daily_limit_per_account=daily_limit,
         hourly_limit_per_account=hourly_limit,

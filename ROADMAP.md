@@ -20,7 +20,7 @@ Goal: make daily use safer before increasing send volume.
 Recommended work:
 
 - Add OS keychain/keyring storage for SMTP account-pool passwords.
-- Add a desktop suppression-list management screen for import, export, add, remove, search, and counts.
+- Expand the desktop suppression-list screen with CSV import/export, search, and bulk review.
 - Add a small fake sample lead CSV for onboarding and tests.
 - Add fake-data screenshots for README and release pages.
 - Add a pre-send governance summary that shows expected `send`, `review`, `suppressed`, and likely duplicate counts before the operator starts a batch.

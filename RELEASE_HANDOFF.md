@@ -77,7 +77,7 @@ These are known and documented, not blockers for controlled small-scale producti
 - SMTP account-pool passwords are still stored in the local app database as application data; use OS keychain/keyring before distributing to non-technical users.
 - SMTP delivery and local result/quota persistence are not one atomic transaction around the external SMTP side effect.
 - The app does not provide hosted unsubscribe links, bounce ingestion, open/click tracking, complaint handling, or deliverability guarantees.
-- Local suppression support exists in the service/storage layer, but a first-class desktop suppression management screen is still a follow-up item.
+- Basic manual desktop suppression management exists; CSV import/export, search, and bulk review are still follow-up items.
 - Older paused tasks without a stored dataset fingerprint fall back to source path and row-count validation.
 - Legacy naive timestamps are interpreted as local time during quota backfill.
 - Operators remain responsible for recipient consent, suppression lists, provider terms, and anti-spam/privacy compliance.
@@ -88,7 +88,7 @@ These are known and documented, not blockers for controlled small-scale producti
 Recommended next actions after this handoff:
 
 1. Add OS keychain/keyring storage for SMTP account-pool passwords.
-2. Add a desktop suppression-list management screen for import, export, add, remove, search, and counts.
+2. Expand the desktop suppression-list screen with CSV import/export, search, and bulk review.
 3. Add fake sample lead data and screenshots after confirming they contain no private information.
 4. Add a pre-send governance summary before SMTP delivery starts.
 5. Add bounce/complaint/unsubscribe import paths for post-send reconciliation.
