@@ -13,6 +13,7 @@ __pycache__/
 htmlcov/
 
 # Virtual environments and local package caches
+.worktrees/
 .venv/
 .build-venv/
 venv/
