@@ -19,6 +19,7 @@ Scope:
 - template rendering
 - AI draft generation
 - SMTP account testing and batch sending
+- suppression, duplicate, quota, pause, and resume governance
 - desktop packaging
 
 Key paths:
@@ -29,12 +30,19 @@ Key paths:
 - `app/ui/`
 - `app/storage/`
 - `tools/build_desktop.py`
+- `docs/sending-governance.md`
 - `docs/desktop-packaging.md`
 
 Before changing this track, run:
 
 ```bash
 python -m pytest tests/test_ai_writer.py tests/test_batch_sender.py tests/test_smtp_service.py tests/test_template.py tests/test_importer.py tests/test_license_service.py
+```
+
+For sending-governance changes, also run:
+
+```bash
+python -m pytest -q tests/test_suppression.py tests/test_send_quota.py tests/test_send_policy.py tests/test_batch_sender_governance.py tests/test_controllers.py
 ```
 
 ### License Platform
@@ -76,6 +84,7 @@ Key paths:
 - `README.md`
 - `CHANGELOG.md`
 - `RELEASE_HANDOFF.md`
+- `ROADMAP.md`
 - `OPEN_SOURCE_CHECKLIST.md`
 - `SECURITY.md`
 - `docs/`
@@ -103,7 +112,7 @@ rg -n '(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|password\s*=\s*['"'"'"][^'"'"'"]+
 Expected result:
 
 - tracked-file scan prints no output
-- secret scan may only print deliberate dummy values in tests
+- secret scan prints no output
 
 ## Release Path
 
@@ -131,9 +140,9 @@ Expected result:
 These are not blockers for the current open-source release, but they are the next responsible maintenance items:
 
 - add OS keychain/keyring storage for SMTP account-pool passwords
+- add a desktop suppression-list management screen for import/export/add/remove/search
 - validate suppression-list and pause/resume behavior with a real desktop install before public binary distribution
 - add screenshots using fake data only
 - add a sample lead CSV with fake data
 - add `CONTRIBUTING.md` if outside contributors are expected
-- add release tags once the first formal version number is chosen
 - decide whether the license platform should remain in this repository long term or move to its own repository

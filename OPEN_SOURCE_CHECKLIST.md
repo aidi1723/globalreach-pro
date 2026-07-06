@@ -24,7 +24,8 @@ Decision: `license-platform/` is included in the first public release as an opti
 - [ ] Add a sample lead CSV with fake data.
 - [ ] Add a contribution guide if outside contributors are expected.
 - [ ] Replace local SQLite SMTP password storage with OS keychain/keyring support if distributing to non-technical users.
-- [ ] Add suppression-list support before positioning this as a production outreach sender.
+- [x] Add service/storage suppression-list support before positioning this as a controlled production outreach sender.
+- [ ] Add a desktop suppression-list management screen before broad non-technical distribution.
 
 ## License Decision
 

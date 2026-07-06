@@ -2,7 +2,7 @@
 
 ## Supported Status
 
-This project has been published as GPLv3 open source. Treat the current codebase as an initial public release unless a formal version tag says otherwise.
+This project has been published as GPLv3 open source. The current released sending-governance stage is tagged `v0.2.0`.
 
 ## Sensitive Data
 

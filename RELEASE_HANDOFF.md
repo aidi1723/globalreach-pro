@@ -2,35 +2,44 @@
 
 ## Current Status
 
-GlobalReach PRO is ready as a GPLv3 open-source repository.
+GlobalReach PRO is published as a GPLv3 open-source repository and has completed the `v0.2.0` sending-governance phase.
 
 - Public repository: `https://github.com/aidi1723/globalreach-pro`
 - Branch: `main`
-- Current release stage: initial open-source publication
+- Latest release tag: `v0.2.0`
+- Latest release commit: `ca0b236 Avoid credential-like test placeholders`
 - License: GNU GPL version 3 only
 - Runtime mode: open-source desktop mode by default when no server-license endpoint is configured
 - Optional commercial/server-license path: `license-platform/`
 
 ## What Was Completed
 
-- Added GPLv3 `LICENSE` and project `NOTICE`.
-- Reviewed and updated README, security notes, release checklist, maintenance guide, changelog, and handoff notes.
-- Confirmed runtime databases, local environments, build outputs, logs, caches, and private `.env` files are ignored.
-- Added development dependency file and CI workflow.
-- Fixed CI compatibility with newer FastAPI/Starlette route internals.
-- Updated GitHub Actions to current major versions.
+- Published the source under GPLv3 with `LICENSE`, `NOTICE`, security notes, checklist, maintenance guide, changelog, and handoff notes.
+- Added CI and development dependency documentation for the Python test suite.
+- Added optional FastAPI license-platform documentation and deployment notes.
+- Added sending governance for controlled production use:
+  - suppression-entry storage and service layer
+  - duplicate-recipient policy integration
+  - per-account rolling daily and hourly quota checks
+  - canonical UTC quota timestamp storage and query
+  - legacy quota backfill from historical send results
+  - pause/resume for batch-send tasks
+  - dataset validation before resuming paused tasks
+  - desktop controls for account limits, pause, resume, stop, and result refresh
+- Added technical documentation in `docs/sending-governance.md`.
+- Added next-phase direction in `ROADMAP.md`.
 
 ## Final Verification Record
 
-Latest verified commands:
+Latest verified release commands:
 
 ```bash
 python -m compileall -q app license-platform/apps/api/app main.py
-python -m pytest -q
+python -m pytest -q -rs
 git diff --check
 ```
 
-Additional release checks:
+Release-hardening checks:
 
 ```bash
 git ls-files | rg '(^|/)(\.venv|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|build|dist|node_modules|\.DS_Store)(/|$)|\.pyc$|\.sqlite3?$|\.db$|\.egg-info'
@@ -40,12 +49,15 @@ rg -n '(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|password\s*=\s*['"'"'"][^'"'"'"]+
 Expected release-check result:
 
 - tracked-file scan prints no output
-- secret scan only reports deliberate dummy values in tests
+- secret scan prints no output
 
-GitHub Actions:
+Most recent local verification:
 
-- Python `3.11`: passed
-- Python `3.12`: passed
+- `compileall`: passed
+- `pytest -q -rs`: `119 passed`
+- `git diff --check`: passed
+- generated-file scan: no output
+- secret-pattern scan: no output
 
 ## Maintenance Owner Path
 
@@ -54,24 +66,30 @@ Use `MAINTENANCE.md` as the ongoing owner guide.
 Primary paths:
 
 - Desktop app: `main.py`, `app/`, `tools/build_desktop.py`
+- Sending governance: `app/services/send_policy.py`, `app/services/send_quota.py`, `app/services/suppression.py`, `app/services/batch_sender.py`, `app/storage/db.py`, `docs/sending-governance.md`
 - License platform: `license-platform/`, `docs/license-platform-*.md`
-- Public docs: `README.md`, `CHANGELOG.md`, `SECURITY.md`, `OPEN_SOURCE_CHECKLIST.md`
+- Public docs: `README.md`, `CHANGELOG.md`, `SECURITY.md`, `OPEN_SOURCE_CHECKLIST.md`, `ROADMAP.md`
 
 ## Residual Risks
 
-These are known and documented, not blockers for source publication:
+These are known and documented, not blockers for controlled small-scale production use:
 
 - SMTP account-pool passwords are still stored in the local app database as application data; use OS keychain/keyring before distributing to non-technical users.
-- The project does not provide unsubscribe hosting, bounce handling, open/click tracking, complaint handling, or deliverability guarantees.
+- SMTP delivery and local result/quota persistence are not one atomic transaction around the external SMTP side effect.
+- The app does not provide hosted unsubscribe links, bounce ingestion, open/click tracking, complaint handling, or deliverability guarantees.
+- Local suppression support exists in the service/storage layer, but a first-class desktop suppression management screen is still a follow-up item.
+- Older paused tasks without a stored dataset fingerprint fall back to source path and row-count validation.
+- Legacy naive timestamps are interpreted as local time during quota backfill.
 - Operators remain responsible for recipient consent, suppression lists, provider terms, and anti-spam/privacy compliance.
 - The license platform is an MVP suitable for controlled deployment, not a fully hardened SaaS control plane.
-- Screenshots and fake sample data are still optional follow-up items.
 
 ## Next Actions
 
 Recommended next actions after this handoff:
 
-1. Create a GitHub release or tag when choosing the first formal version name.
-2. Add screenshots and sample lead data only after confirming they contain no private information.
-3. Add a contribution guide if outside contributors are expected.
-4. Prioritize keychain/keyring storage and suppression-list support before positioning the app for broad production sending.
+1. Add OS keychain/keyring storage for SMTP account-pool passwords.
+2. Add a desktop suppression-list management screen for import, export, add, remove, search, and counts.
+3. Add fake sample lead data and screenshots after confirming they contain no private information.
+4. Add a pre-send governance summary before SMTP delivery starts.
+5. Add bounce/complaint/unsubscribe import paths for post-send reconciliation.
+6. Follow `ROADMAP.md` for the next development phase.

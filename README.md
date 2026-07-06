@@ -36,8 +36,10 @@ This project is not a full email marketing platform. It does not provide unsubsc
 - `CHANGELOG.md` - public release log.
 - `MAINTENANCE.md` - maintenance tracks, verification commands, and release path.
 - `RELEASE_HANDOFF.md` - current open-source handoff status and residual risks.
+- `ROADMAP.md` - next development phases and recommended direction.
 - `OPEN_SOURCE_CHECKLIST.md` - release readiness checklist.
 - `SECURITY.md` - sensitive-data and responsible-use policy.
+- `docs/sending-governance.md` - technical notes for suppression, quotas, policy decisions, and pause/resume.
 
 ## Requirements
 

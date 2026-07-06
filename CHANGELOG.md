@@ -6,7 +6,39 @@ This project currently uses date-based release notes until a formal semantic ver
 
 ## Unreleased
 
-- No unreleased changes.
+- Completed handoff, roadmap, and sending-governance documentation updates after the `v0.2.0` tag.
+
+## 2026-07-06 - v0.2.0 Sending Governance Release
+
+### Added
+
+- Added local suppression-entry storage and service support.
+- Added per-account rolling 24-hour and rolling 1-hour send quota enforcement.
+- Added send-policy decisions for invalid email, suppression, duplicate review/skip, rate limit, and eligible send.
+- Added pause and resume support for batch-send tasks.
+- Added dataset source, row-count, and fingerprint validation before resuming paused tasks.
+- Added desktop controls for daily/hourly account limits, pause, resume, stop, and task-result refresh.
+- Added focused tests for suppression, quota, send policy, governance-aware batch sending, and controller behavior.
+
+### Changed
+
+- Batch sending now evaluates governance decisions before SMTP delivery and records explicit row outcomes.
+- Quota timestamps are stored and queried in canonical UTC form.
+- Legacy `send_results` are backfilled into account quota usage for existing installations.
+- Legacy naive timestamps are interpreted as local time during quota backfill.
+
+### Fixed
+
+- Fixed quota timestamp deduplication during backfill.
+- Fixed pause-during-delay behavior so the next row is not sent after pause is requested.
+- Fixed resume safety for mismatched dataset source, row count, or fingerprint.
+- Replaced credential-like test placeholders so repository secret scans are clean.
+
+### Verification
+
+- Local release verification passed with `119 passed`.
+- `compileall`, whitespace checks, generated-file scan, and secret-pattern scan passed.
+- Published tag: `v0.2.0`.
 
 ## 2026-07-05 - GPLv3 Open-Source Release
 
