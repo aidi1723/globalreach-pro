@@ -5,6 +5,7 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import time
 from typing import Callable
 
 from app.services.ai_writer import AISettings, generate_email_draft
@@ -150,6 +151,22 @@ def _dataset_fingerprint(dataset: LeadDataset) -> str:
     }
     raw_value = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+
+
+def _wait_for_delay_signal(stop_event, pause_event, delay_seconds: float) -> str:
+    deadline = time.monotonic() + max(0.0, delay_seconds)
+    poll_interval = 0.1
+    while True:
+        if stop_event.is_set():
+            return "stop"
+        if pause_event is not None and pause_event.is_set():
+            return "stop" if stop_event.is_set() else "pause"
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return ""
+        if stop_event.wait(min(poll_interval, remaining)):
+            return "stop"
 
 
 def run_batch_send(
@@ -431,7 +448,12 @@ def run_batch_send(
             return task_id
 
         if settings.per_email_delay_seconds > 0 and index < dataset.total_rows - 1:
-            if stop_event.wait(settings.per_email_delay_seconds):
+            delay_signal = _wait_for_delay_signal(
+                stop_event,
+                pause_event,
+                settings.per_email_delay_seconds,
+            )
+            if delay_signal == "stop":
                 storage.update_send_task(
                     task_id,
                     "stopped",
@@ -441,17 +463,7 @@ def run_batch_send(
                     review_count=review_count,
                 )
                 return task_id
-            if stop_event.is_set():
-                storage.update_send_task(
-                    task_id,
-                    "stopped",
-                    success_count,
-                    failure_count,
-                    skipped_count=skipped_count,
-                    review_count=review_count,
-                )
-                return task_id
-            if pause_event is not None and pause_event.is_set():
+            if delay_signal == "pause":
                 storage.update_send_task(
                     task_id,
                     "paused",

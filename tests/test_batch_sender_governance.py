@@ -316,24 +316,27 @@ def test_pause_during_inter_email_delay_stops_before_next_row(monkeypatch, tmp_p
             {"Email": "second@example.com", "Company": "B", "Name": "B", "Product": "P"},
         ]
     )
-    pause_event = threading.Event()
+    stop_event = threading.Event()
     send_calls = []
 
-    class PauseDuringDelayEvent:
+    class PauseOnThirdCheck:
         def __init__(self):
-            self._event = threading.Event()
+            self.check_count = 0
 
         def is_set(self):
-            return self._event.is_set()
+            self.check_count += 1
+            return self.check_count >= 3
 
         def set(self):
-            self._event.set()
+            self.check_count = 3
 
-        def wait(self, _timeout):
-            pause_event.set()
-            return self._event.is_set()
+        def clear(self):
+            self.check_count = 0
+
+    pause_event = PauseOnThirdCheck()
 
     monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+    monkeypatch.setattr(stop_event, "wait", lambda _timeout: False)
 
     def capture_send(_config, recipient_email, *_args, **_kwargs):
         send_calls.append(recipient_email)
@@ -347,7 +350,7 @@ def test_pause_during_inter_email_delay_stops_before_next_row(monkeypatch, tmp_p
         ai_settings=AISettings(),
         task_label="pause-during-delay",
         duplicate_policy="send",
-        stop_event=PauseDuringDelayEvent(),
+        stop_event=stop_event,
         pause_event=pause_event,
         settings=BatchSendSettings(per_email_delay_seconds=1.0),
         governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
