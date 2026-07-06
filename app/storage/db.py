@@ -118,6 +118,24 @@ class AppStorage:
                 ON send_results(recipient_email COLLATE NOCASE, status)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS suppression_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    recipient_email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    reason TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_suppression_entries_email
+                ON suppression_entries(recipient_email COLLATE NOCASE)
+                """
+            )
             self._ensure_column(conn, "send_tasks", "skipped_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "send_tasks", "review_count", "INTEGER NOT NULL DEFAULT 0")
             self._migrate_plaintext_secrets(conn)
@@ -537,3 +555,74 @@ class AppStorage:
         with self._connect() as conn:
             rows = conn.execute(query, tuple(normalized_recipients)).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
+
+    def upsert_suppression_entry(
+        self,
+        recipient_email: str,
+        reason: str,
+        source: str,
+    ) -> dict[str, str]:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO suppression_entries(
+                    recipient_email, reason, source, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?)
+                ON CONFLICT(recipient_email) DO UPDATE SET
+                    reason = excluded.reason,
+                    source = excluded.source,
+                    updated_at = excluded.updated_at
+                """,
+                (recipient_email.strip(), reason, source, now, now),
+            )
+        entry = self.get_suppression_entry(recipient_email)
+        if entry is None:
+            raise RuntimeError("Suppression entry was not saved.")
+        return entry
+
+    def delete_suppression_entry(self, recipient_email: str):
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM suppression_entries WHERE recipient_email = ? COLLATE NOCASE",
+                (recipient_email.strip(),),
+            )
+
+    def get_suppression_entry(self, recipient_email: str) -> dict[str, str] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT recipient_email, reason, source, created_at
+                FROM suppression_entries
+                WHERE recipient_email = ? COLLATE NOCASE
+                """,
+                (recipient_email.strip(),),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "recipient_email": row[0],
+            "reason": row[1],
+            "source": row[2],
+            "created_at": row[3],
+        }
+
+    def list_suppression_entries(self) -> list[dict[str, str]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT recipient_email, reason, source, created_at
+                FROM suppression_entries
+                ORDER BY recipient_email COLLATE NOCASE ASC
+                """
+            ).fetchall()
+        return [
+            {
+                "recipient_email": row[0],
+                "reason": row[1],
+                "source": row[2],
+                "created_at": row[3],
+            }
+            for row in rows
+        ]
