@@ -169,6 +169,7 @@ class AppStorage:
                 ON account_send_usage(recipient_email COLLATE NOCASE)
                 """
             )
+            self._backfill_account_send_usage(conn)
             self._ensure_column(conn, "send_tasks", "skipped_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "send_tasks", "review_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "send_tasks", "dataset_fingerprint", "TEXT NOT NULL DEFAULT ''")
@@ -179,6 +180,44 @@ class AppStorage:
         if any(str(row[1]).lower() == column_name.lower() for row in rows):
             return
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+    def _backfill_account_send_usage(self, conn):
+        rows = conn.execute(
+            """
+            SELECT account_label, recipient_email, task_id, sent_at
+            FROM send_results
+            WHERE status = 'sent'
+            """
+        ).fetchall()
+        for account_label, recipient_email, task_id, sent_at in rows:
+            try:
+                canonical_sent_at = _canonical_quota_timestamp(str(sent_at))
+            except (TypeError, ValueError):
+                continue
+            conn.execute(
+                """
+                INSERT INTO account_send_usage(account_label, recipient_email, task_id, sent_at)
+                SELECT ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM account_send_usage
+                    WHERE account_label = ?
+                      AND recipient_email = ? COLLATE NOCASE
+                      AND task_id = ?
+                      AND sent_at = ?
+                )
+                """,
+                (
+                    account_label,
+                    recipient_email,
+                    task_id,
+                    canonical_sent_at,
+                    account_label,
+                    recipient_email,
+                    task_id,
+                    canonical_sent_at,
+                ),
+            )
 
     def _secret_ref(self, key: str) -> str:
         return SECRET_REF_PREFIX + quote(key, safe="")

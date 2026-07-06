@@ -9,6 +9,67 @@ def make_storage(tmp_path):
     return AppStorage(tmp_path / "quota.db", secret_store=EphemeralSecretStore())
 
 
+def create_legacy_quota_db(db_path, sent_at: str = "2026-07-06T10:30:00+08:00"):
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE send_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label TEXT NOT NULL,
+                source_file TEXT NOT NULL,
+                status TEXT NOT NULL,
+                total_count INTEGER NOT NULL,
+                dataset_fingerprint TEXT NOT NULL DEFAULT '',
+                success_count INTEGER NOT NULL,
+                failure_count INTEGER NOT NULL,
+                skipped_count INTEGER NOT NULL DEFAULT 0,
+                review_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE send_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                row_index INTEGER NOT NULL,
+                recipient_email TEXT NOT NULL,
+                account_label TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                body TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                sent_at TEXT NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES send_tasks(id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO send_tasks(
+                id, label, source_file, status, total_count, dataset_fingerprint,
+                success_count, failure_count, skipped_count, review_count,
+                created_at, started_at, finished_at
+            )
+            VALUES(1, 'legacy import', 'legacy.csv', 'completed', 1, '', 1, 0, 0, 0,
+                   '2026-07-06T10:00:00', '2026-07-06T10:00:00', '2026-07-06T10:31:00')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO send_results(
+                task_id, row_index, recipient_email, account_label, subject, body,
+                status, error_message, sent_at
+            )
+            VALUES(1, 0, 'Buyer@Example.com', 'acc-legacy', 'Hello', 'Body', 'sent', '', ?)
+            """,
+            (sent_at,),
+        )
+
+
 def test_daily_quota_blocks_after_limit(tmp_path):
     storage = make_storage(tmp_path)
     quota = SendQuotaService(storage)
@@ -153,3 +214,49 @@ def test_hourly_quota_includes_exact_window_start(tmp_path):
 
     assert blocked.allowed is False
     assert blocked.code == "hourly_limit_reached"
+
+
+def test_init_backfills_legacy_sent_results_into_account_usage(tmp_path):
+    db_path = tmp_path / "quota.db"
+    create_legacy_quota_db(db_path)
+
+    storage = AppStorage(db_path, secret_store=EphemeralSecretStore())
+    quota = SendQuotaService(storage)
+
+    blocked = quota.check("acc-legacy", daily_limit=1, hourly_limit=0, now="2026-07-06T03:00:00")
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT account_label, recipient_email, task_id, sent_at
+            FROM account_send_usage
+            """
+        ).fetchone()
+
+    assert blocked.allowed is False
+    assert blocked.code == "daily_limit_reached"
+    assert row == ("acc-legacy", "Buyer@Example.com", 1, "2026-07-06T02:30:00")
+
+
+def test_init_backfills_legacy_sent_results_idempotently(tmp_path):
+    db_path = tmp_path / "quota.db"
+    create_legacy_quota_db(db_path)
+
+    AppStorage(db_path, secret_store=EphemeralSecretStore())
+    AppStorage(db_path, secret_store=EphemeralSecretStore())
+
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM account_send_usage").fetchone()[0]
+
+    assert count == 1
+
+
+def test_init_skips_legacy_sent_results_with_malformed_sent_at(tmp_path):
+    db_path = tmp_path / "quota.db"
+    create_legacy_quota_db(db_path, sent_at="not-a-timestamp")
+
+    AppStorage(db_path, secret_store=EphemeralSecretStore())
+
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM account_send_usage").fetchone()[0]
+
+    assert count == 0
