@@ -3,11 +3,24 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote, unquote
+
+from app.services.secret_store import SecretStore, create_default_secret_store
+
+
+SENSITIVE_STATE_KEYS = {
+    "ai_api_key",
+    "license_key",
+    "license_activation_token",
+}
+
+SECRET_REF_PREFIX = "secret://globalreach-pro/"
 
 
 class AppStorage:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, secret_store: SecretStore | None = None):
         self.db_path = Path(db_path)
+        self.secret_store = secret_store or create_default_secret_store()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -68,6 +81,8 @@ class AppStorage:
                     total_count INTEGER NOT NULL,
                     success_count INTEGER NOT NULL,
                     failure_count INTEGER NOT NULL,
+                    skipped_count INTEGER NOT NULL DEFAULT 0,
+                    review_count INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     finished_at TEXT NOT NULL
@@ -103,6 +118,62 @@ class AppStorage:
                 ON send_results(recipient_email COLLATE NOCASE, status)
                 """
             )
+            self._ensure_column(conn, "send_tasks", "skipped_count", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "send_tasks", "review_count", "INTEGER NOT NULL DEFAULT 0")
+            self._migrate_plaintext_secrets(conn)
+
+    def _ensure_column(self, conn, table_name: str, column_name: str, definition: str):
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if any(str(row[1]).lower() == column_name.lower() for row in rows):
+            return
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+    def _secret_ref(self, key: str) -> str:
+        return SECRET_REF_PREFIX + quote(key, safe="")
+
+    def _secret_key_from_ref(self, value: str) -> str:
+        if not value.startswith(SECRET_REF_PREFIX):
+            return ""
+        return unquote(value[len(SECRET_REF_PREFIX) :])
+
+    def _store_secret_value(self, key: str, value: str) -> str:
+        if not value:
+            self.secret_store.delete(key)
+            return ""
+        self.secret_store.set(key, value)
+        return self._secret_ref(key)
+
+    def _resolve_secret_value(self, stored_value: str) -> str:
+        key = self._secret_key_from_ref(stored_value)
+        if not key:
+            return stored_value
+        return self.secret_store.get(key)
+
+    def _migrate_plaintext_secrets(self, conn):
+        smtp_rows = conn.execute("SELECT label, password FROM smtp_accounts").fetchall()
+        for label, password in smtp_rows:
+            raw_password = str(password or "")
+            if not raw_password or raw_password.startswith(SECRET_REF_PREFIX):
+                continue
+            secret_key = f"smtp:{label}:password"
+            conn.execute(
+                "UPDATE smtp_accounts SET password = ? WHERE label = ?",
+                (self._store_secret_value(secret_key, raw_password), label),
+            )
+
+        placeholders = ",".join("?" for _ in SENSITIVE_STATE_KEYS)
+        state_rows = conn.execute(
+            f"SELECT key, value FROM app_state WHERE key IN ({placeholders})",
+            tuple(SENSITIVE_STATE_KEYS),
+        ).fetchall()
+        for key, value in state_rows:
+            raw_value = str(value or "")
+            if not raw_value or raw_value.startswith(SECRET_REF_PREFIX):
+                continue
+            conn.execute(
+                "UPDATE app_state SET value = ? WHERE key = ?",
+                (self._store_secret_value(f"state:{key}", raw_value), key),
+            )
 
     def log_event(self, level: str, message: str):
         with self._connect() as conn:
@@ -125,6 +196,11 @@ class AppStorage:
         return list(reversed(rows))
 
     def set_state(self, key: str, value: str):
+        stored_value = (
+            self._store_secret_value(f"state:{key}", value)
+            if key in SENSITIVE_STATE_KEYS
+            else value
+        )
         with self._connect() as conn:
             conn.execute(
                 """
@@ -134,7 +210,7 @@ class AppStorage:
                     value = excluded.value,
                     updated_at = excluded.updated_at
                 """,
-                (key, value, datetime.now().isoformat(timespec="seconds")),
+                (key, stored_value, datetime.now().isoformat(timespec="seconds")),
             )
 
     def get_state(self, key: str) -> str | None:
@@ -143,10 +219,17 @@ class AppStorage:
                 "SELECT value FROM app_state WHERE key = ?",
                 (key,),
             ).fetchone()
-        return row[0] if row else None
+        if not row:
+            return None
+        return self._resolve_secret_value(str(row[0]))
 
     def save_smtp_account(self, account: dict[str, str | int]):
         now = datetime.now().isoformat(timespec="seconds")
+        label = str(account["label"])
+        password_ref = self._store_secret_value(
+            f"smtp:{label}:password",
+            str(account.get("password", "")),
+        )
         with self._connect() as conn:
             conn.execute(
                 """
@@ -168,12 +251,12 @@ class AppStorage:
                     updated_at = excluded.updated_at
                 """,
                 (
-                    account["label"],
+                    label,
                     account["provider"],
                     account["sender_email"],
                     account["sender_name"],
                     account["username"],
-                    account["password"],
+                    password_ref,
                     account["host"],
                     int(account["port"]),
                     account["security"],
@@ -200,7 +283,7 @@ class AppStorage:
                 "sender_email": row[2],
                 "sender_name": row[3],
                 "username": row[4],
-                "password": row[5],
+                "password": self._resolve_secret_value(str(row[5])),
                 "host": row[6],
                 "port": str(row[7]),
                 "security": row[8],
@@ -228,7 +311,7 @@ class AppStorage:
             "sender_email": row[2],
             "sender_name": row[3],
             "username": row[4],
-            "password": row[5],
+            "password": self._resolve_secret_value(str(row[5])),
             "host": row[6],
             "port": str(row[7]),
             "security": row[8],
@@ -238,6 +321,7 @@ class AppStorage:
     def delete_smtp_account(self, label: str):
         with self._connect() as conn:
             conn.execute("DELETE FROM smtp_accounts WHERE label = ?", (label,))
+        self.secret_store.delete(f"smtp:{label}:password")
 
     def create_send_task(self, label: str, source_file: str, total_count: int) -> int:
         now = datetime.now().isoformat(timespec="seconds")
@@ -246,9 +330,9 @@ class AppStorage:
                 """
                 INSERT INTO send_tasks(
                     label, source_file, status, total_count, success_count, failure_count,
-                    created_at, started_at, finished_at
+                    skipped_count, review_count, created_at, started_at, finished_at
                 )
-                VALUES(?, ?, 'pending', ?, 0, 0, ?, '', '')
+                VALUES(?, ?, 'pending', ?, 0, 0, 0, 0, ?, '', '')
                 """,
                 (label, source_file, total_count, now),
             )
@@ -260,6 +344,8 @@ class AppStorage:
         status: str,
         success_count: int,
         failure_count: int,
+        skipped_count: int | None = None,
+        review_count: int | None = None,
         started_at: str = "",
         finished_at: str = "",
     ):
@@ -270,6 +356,8 @@ class AppStorage:
                 SET status = ?,
                     success_count = ?,
                     failure_count = ?,
+                    skipped_count = CASE WHEN ? IS NOT NULL THEN ? ELSE skipped_count END,
+                    review_count = CASE WHEN ? IS NOT NULL THEN ? ELSE review_count END,
                     started_at = CASE WHEN ? != '' THEN ? ELSE started_at END,
                     finished_at = CASE WHEN ? != '' THEN ? ELSE finished_at END
                 WHERE id = ?
@@ -278,6 +366,10 @@ class AppStorage:
                     status,
                     success_count,
                     failure_count,
+                    skipped_count,
+                    skipped_count,
+                    review_count,
+                    review_count,
                     started_at,
                     started_at,
                     finished_at,
@@ -363,7 +455,7 @@ class AppStorage:
             row = conn.execute(
                 """
                 SELECT id, label, source_file, status, total_count, success_count, failure_count,
-                       created_at, started_at, finished_at
+                       skipped_count, review_count, created_at, started_at, finished_at
                 FROM send_tasks
                 ORDER BY id DESC
                 LIMIT 1
@@ -379,9 +471,11 @@ class AppStorage:
             "total_count": str(row[4]),
             "success_count": str(row[5]),
             "failure_count": str(row[6]),
-            "created_at": row[7],
-            "started_at": row[8],
-            "finished_at": row[9],
+            "skipped_count": str(row[7]),
+            "review_count": str(row[8]),
+            "created_at": row[9],
+            "started_at": row[10],
+            "finished_at": row[11],
         }
 
     def recipient_send_history(self, recipient_email: str, limit: int = 10) -> list[dict[str, str]]:

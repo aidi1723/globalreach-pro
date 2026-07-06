@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS customers (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
     company VARCHAR(255) NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -85,6 +85,10 @@ ON license_activations(license_key_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_license_activations_machine_lookup
 ON license_activations(license_key_id, machine_id, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_license_activations_active_machine
+ON license_activations(license_key_id, machine_id)
+WHERE status = 'active';
 
 CREATE INDEX IF NOT EXISTS idx_license_activations_token_lookup
 ON license_activations(license_key_id, machine_id, activation_token);

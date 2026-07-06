@@ -328,31 +328,56 @@ class LicenseManager:
 
             now = utc_now()
             token = "act_" + secrets.token_urlsafe(18)
-            conn.execute(
-                """
-                INSERT INTO license_activations(
-                    license_key_id, product_code, machine_id, machine_name, device_label,
-                    os_name, os_version, app_version, activation_token, status,
-                    first_seen_at, last_seen_at, created_at, updated_at
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO license_activations(
+                        license_key_id, product_code, machine_id, machine_name, device_label,
+                        os_name, os_version, app_version, activation_token, status,
+                        first_seen_at, last_seen_at, created_at, updated_at
+                    )
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+                    """,
+                    (
+                        license_row["id"],
+                        license_row["product_code"],
+                        payload["machine_id"],
+                        payload.get("machine_name", ""),
+                        payload.get("machine_name", ""),
+                        payload.get("os_name", ""),
+                        payload.get("os_version", ""),
+                        payload.get("app_version", ""),
+                        token,
+                        now,
+                        now,
+                        now,
+                        now,
+                    ),
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
-                """,
-                (
-                    license_row["id"],
-                    license_row["product_code"],
-                    payload["machine_id"],
-                    payload.get("machine_name", ""),
-                    payload.get("machine_name", ""),
-                    payload.get("os_name", ""),
-                    payload.get("os_version", ""),
-                    payload.get("app_version", ""),
-                    token,
-                    now,
-                    now,
-                    now,
-                    now,
-                ),
-            )
+            except (sqlite3.IntegrityError, SQLAlchemyIntegrityError):
+                existing = conn.execute(
+                    """
+                    SELECT * FROM license_activations
+                    WHERE license_key_id = ? AND machine_id = ? AND status = 'active'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (license_row["id"], payload["machine_id"]),
+                ).fetchone()
+                if existing:
+                    self._touch_activation(conn, int(existing["id"]), payload.get("app_version", ""))
+                    self._touch_license(conn, int(license_row["id"]))
+                    return self._build_success_result(license_row, existing["activation_token"])
+                return self._deny(
+                    conn,
+                    product_code=str(license_row["product_code"]),
+                    event_type="activation_denied",
+                    message="该授权已达到设备激活上限，请先释放旧设备。",
+                    code="activation_limit_reached",
+                    license_status=str(license_row["status"]),
+                    license_key_id=int(license_row["id"]),
+                    payload=payload,
+                )
             self._touch_license(conn, int(license_row["id"]))
             self._log_event(
                 conn,

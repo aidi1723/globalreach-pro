@@ -100,6 +100,52 @@ print(json.dumps({"tables": tables}))
     assert "alembic_version" in payload["tables"]
 
 
+def test_license_platform_sqlite_schema_rejects_duplicate_active_machine(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    api_root = project_root / "license-platform" / "apps" / "api"
+    db_path = tmp_path / "active_machine_unique.sqlite3"
+
+    code = """
+import json
+import sqlite3
+import sys
+
+sys.path.insert(0, sys.argv[1])
+
+from app.db import init_db
+
+init_db()
+
+conn = sqlite3.connect(sys.argv[2])
+conn.execute("INSERT INTO products(product_code, product_name, status, created_at, updated_at) VALUES('globalreach', 'GlobalReach', 'active', 'now', 'now')")
+conn.execute("INSERT INTO license_keys(product_code, license_key, issued_at, created_at, updated_at) VALUES('globalreach', 'MAIL-AAAA-BBBB', 'now', 'now', 'now')")
+license_id = conn.execute("SELECT id FROM license_keys WHERE license_key = 'MAIL-AAAA-BBBB'").fetchone()[0]
+conn.execute(
+    "INSERT INTO license_activations(license_key_id, product_code, machine_id, activation_token, status, first_seen_at, last_seen_at, created_at, updated_at) VALUES(?, 'globalreach', 'machine-1', 'act_1', 'active', 'now', 'now', 'now', 'now')",
+    (license_id,),
+)
+duplicate_rejected = False
+try:
+    conn.execute(
+        "INSERT INTO license_activations(license_key_id, product_code, machine_id, activation_token, status, first_seen_at, last_seen_at, created_at, updated_at) VALUES(?, 'globalreach', 'machine-1', 'act_2', 'active', 'now', 'now', 'now', 'now')",
+        (license_id,),
+    )
+except sqlite3.IntegrityError:
+    duplicate_rejected = True
+print(json.dumps({"duplicate_rejected": duplicate_rejected}))
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(api_root), str(db_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "LICENSE_PLATFORM_DATABASE_URL": f"sqlite:///{db_path}"},
+    )
+    payload = json.loads(result.stdout.strip())
+    assert payload["duplicate_rejected"] is True
+
+
 def test_license_platform_alembic_scaffold_files_exist():
     project_root = Path(__file__).resolve().parents[1]
     expected_files = [

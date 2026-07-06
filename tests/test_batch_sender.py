@@ -2,13 +2,14 @@ import threading
 
 from app.services.ai_writer import AISettings, EmailDraft
 from app.services.batch_sender import BatchSendSettings, run_batch_send
+from app.services.secret_store import EphemeralSecretStore
 from app.services.smtp_service import SMTPConfigError
 from app.storage.db import AppStorage
 from tests.helpers import make_dataset
 
 
 def make_storage(tmp_path):
-    storage = AppStorage(tmp_path / "batch.db")
+    storage = AppStorage(tmp_path / "batch.db", secret_store=EphemeralSecretStore())
     storage.save_smtp_account(
         {
             "label": "acc-1",
@@ -127,6 +128,54 @@ def test_run_batch_send_handles_duplicate_policy_branches(monkeypatch, tmp_path)
     assert storage.list_send_results(skip_task, limit=1)[0]["status"] == "skipped_duplicate"
     assert storage.list_send_results(send_task, limit=1)[0]["status"] == "sent"
     assert len(send_calls) == 1
+
+
+def test_run_batch_send_records_review_and_skip_counts(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    prior_task = storage.create_send_task("old", "old.csv", 1)
+    storage.add_send_result(
+        task_id=prior_task,
+        row_index=0,
+        recipient_email="dup@example.com",
+        account_label="acc-1",
+        subject="old",
+        body="old",
+        status="sent",
+    )
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+    monkeypatch.setattr("app.services.batch_sender.send_email", lambda *_args, **_kwargs: None)
+
+    review_task = run_batch_send(
+        storage=storage,
+        dataset=make_dataset([{"Email": "dup@example.com", "Company": "A", "Name": "A", "Product": "P"}]),
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="review",
+        duplicate_policy="review",
+        stop_event=threading.Event(),
+        settings=BatchSendSettings(),
+    )
+    review_summary = storage.latest_send_task()
+    assert review_summary["id"] == str(review_task)
+    assert review_summary["status"] == "completed_with_review"
+    assert review_summary["review_count"] == "1"
+    assert review_summary["skipped_count"] == "0"
+
+    skip_task = run_batch_send(
+        storage=storage,
+        dataset=make_dataset([{"Email": "dup@example.com", "Company": "A", "Name": "A", "Product": "P"}]),
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="skip",
+        duplicate_policy="skip",
+        stop_event=threading.Event(),
+        settings=BatchSendSettings(),
+    )
+    skip_summary = storage.latest_send_task()
+    assert skip_summary["id"] == str(skip_task)
+    assert skip_summary["status"] == "completed_with_skips"
+    assert skip_summary["review_count"] == "0"
+    assert skip_summary["skipped_count"] == "1"
 
 
 def test_run_batch_send_retries_and_then_succeeds(monkeypatch, tmp_path):

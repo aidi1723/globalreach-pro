@@ -122,8 +122,16 @@ def _build_csv_content(rows: list[dict[str, str | int]]) -> str:
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     for row in rows:
-        writer.writerow(row)
+        writer.writerow({key: _escape_csv_cell(value) for key, value in row.items()})
     return output.getvalue()
+
+
+def _escape_csv_cell(value: str | int) -> str | int:
+    if not isinstance(value, str):
+        return value
+    if value and value[0] in {"=", "+", "-", "@", "\t", "\r"}:
+        return "'" + value
+    return value
 
 
 @router.post("/auth/login", response_model=AdminLoginResponse)

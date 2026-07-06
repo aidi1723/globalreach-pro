@@ -161,6 +161,39 @@ def _run_app_script(api_root: Path, db_path: Path, code: str, extra_env: dict[st
     )
 
 
+def test_license_platform_csv_export_escapes_formula_cells(tmp_path):
+    api_root = Path(__file__).resolve().parents[1] / "license-platform" / "apps" / "api"
+    db_path = tmp_path / "csv_escape.sqlite3"
+    code = """
+import json
+import sys
+
+sys.path.insert(0, sys.argv[1])
+
+from app.routes.admin import _build_csv_content
+
+content = _build_csv_content([
+    {
+        "项目标识": "globalreach",
+        "激活码": "MAIL-AAAA-BBBB",
+        "套餐": "标准版",
+        "状态": "正常",
+        "设备占用": "0/1",
+        "过期时间": "",
+        "最近校验时间": "",
+        "创建时间": "",
+        "备注": "=HYPERLINK(\\"https://example.test\\")",
+    }
+])
+print(json.dumps({"content": content}))
+"""
+    result = _run_app_script(api_root, db_path, code)
+    payload = json.loads(result.stdout.strip())
+
+    assert "'=HYPERLINK" in payload["content"]
+    assert ",=HYPERLINK" not in payload["content"]
+
+
 def test_license_platform_console_supports_batch_actions_and_chinese_ui(tmp_path):
     api_root = Path(__file__).resolve().parents[1] / "license-platform" / "apps" / "api"
     db_path = tmp_path / "console_ui.sqlite3"

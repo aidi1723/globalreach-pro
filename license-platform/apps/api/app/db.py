@@ -234,8 +234,22 @@ def _ensure_runtime_schema(conn: DBSession):
             conn.execute(
                 "ALTER TABLE license_keys ADD COLUMN validity_seconds INTEGER NOT NULL DEFAULT 0"
             )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_license_activations_active_machine
+            ON license_activations(license_key_id, machine_id)
+            WHERE status = 'active'
+            """
+        )
         return
     if not _postgres_column_exists(conn, "license_keys", "validity_seconds"):
         conn.execute(
             "ALTER TABLE license_keys ADD COLUMN validity_seconds INTEGER NOT NULL DEFAULT 0"
         )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_license_activations_active_machine
+        ON license_activations(license_key_id, machine_id)
+        WHERE status = 'active'
+        """
+    )

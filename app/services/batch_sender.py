@@ -103,10 +103,19 @@ def run_batch_send(
 
     success_count = 0
     failure_count = 0
+    skipped_count = 0
+    review_count = 0
 
     for index, row in enumerate(dataset.rows):
         if stop_event.is_set():
-            storage.update_send_task(task_id, "stopped", success_count, failure_count)
+            storage.update_send_task(
+                task_id,
+                "stopped",
+                success_count,
+                failure_count,
+                skipped_count=skipped_count,
+                review_count=review_count,
+            )
             return task_id
 
         account = accounts[index % len(accounts)]
@@ -128,9 +137,11 @@ def run_batch_send(
                 if duplicate_policy == "review":
                     status = "review_required"
                     error_message = f"该邮箱历史已发送 {duplicate_count} 次，等待人工审核"
+                    review_count += 1
                 elif duplicate_policy == "skip":
                     status = "skipped_duplicate"
                     error_message = f"该邮箱历史已发送 {duplicate_count} 次，按策略自动忽略"
+                    skipped_count += 1
             if status == "sent":
                 draft = generate_email_draft(template, row, dataset, index, ai_settings)
                 subject = draft.subject
@@ -187,7 +198,14 @@ def run_batch_send(
                                 )
                             )
                         if stop_event.wait(settings.retry_backoff_seconds):
-                            storage.update_send_task(task_id, "stopped", success_count, failure_count)
+                            storage.update_send_task(
+                                task_id,
+                                "stopped",
+                                success_count,
+                                failure_count,
+                                skipped_count=skipped_count,
+                                review_count=review_count,
+                            )
                             return task_id
                         continue
 
@@ -209,7 +227,14 @@ def run_batch_send(
             status=status,
             error_message=error_message,
         )
-        storage.update_send_task(task_id, "running", success_count, failure_count)
+        storage.update_send_task(
+            task_id,
+            "running",
+            success_count,
+            failure_count,
+            skipped_count=skipped_count,
+            review_count=review_count,
+        )
 
         if progress_callback is not None:
             progress_callback(
@@ -226,16 +251,32 @@ def run_batch_send(
 
         if settings.per_email_delay_seconds > 0 and index < dataset.total_rows - 1:
             if stop_event.wait(settings.per_email_delay_seconds):
-                storage.update_send_task(task_id, "stopped", success_count, failure_count)
+                storage.update_send_task(
+                    task_id,
+                    "stopped",
+                    success_count,
+                    failure_count,
+                    skipped_count=skipped_count,
+                    review_count=review_count,
+                )
                 return task_id
 
     finished_at = datetime.now().isoformat(timespec="seconds")
-    final_status = "completed" if failure_count == 0 else "completed_with_errors"
+    if failure_count:
+        final_status = "completed_with_errors"
+    elif review_count:
+        final_status = "completed_with_review"
+    elif skipped_count:
+        final_status = "completed_with_skips"
+    else:
+        final_status = "completed"
     storage.update_send_task(
         task_id,
         final_status,
         success_count,
         failure_count,
+        skipped_count=skipped_count,
+        review_count=review_count,
         finished_at=finished_at,
     )
     return task_id

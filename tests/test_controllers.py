@@ -1,6 +1,12 @@
-import pytest
+import sys
+import types
 
-pytest.importorskip("tkinter", exc_type=ImportError)
+fake_tkinter = types.ModuleType("tkinter")
+fake_tkinter.filedialog = types.SimpleNamespace()
+fake_tkinter.messagebox = types.SimpleNamespace()
+sys.modules.setdefault("tkinter", fake_tkinter)
+sys.modules.setdefault("tkinter.filedialog", fake_tkinter.filedialog)
+sys.modules.setdefault("tkinter.messagebox", fake_tkinter.messagebox)
 
 from app.controllers import state_controller, workspace_controller
 from tests.helpers import make_dataset

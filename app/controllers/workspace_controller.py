@@ -419,8 +419,8 @@ def refresh_task_results(app):
         f"来源: {Path(task['source_file']).name}\n"
         f"进度: sent={status_counts.get('sent', 0)} "
         f"failed={status_counts.get('failed', 0)} "
-        f"skipped={status_counts.get('skipped_duplicate', 0)} "
-        f"review={status_counts.get('review_required', 0)} "
+        f"skipped={task.get('skipped_count', status_counts.get('skipped_duplicate', 0))} "
+        f"review={task.get('review_count', status_counts.get('review_required', 0))} "
         f"total={task['total_count']}\n"
     )
     app.task_status_box.insert("0.0", header + "\n最近结果:\n")
