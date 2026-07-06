@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
+import json
 from pathlib import Path
 from typing import Callable
 
@@ -140,6 +142,16 @@ def _normalized_source_path(source_path: str) -> Path:
     return Path(source_path).expanduser().resolve(strict=False)
 
 
+def _dataset_fingerprint(dataset: LeadDataset) -> str:
+    payload = {
+        "headers": dataset.headers,
+        "rows": dataset.rows,
+        "field_mapping": dataset.field_mapping,
+    }
+    raw_value = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+
+
 def run_batch_send(
     storage: AppStorage,
     dataset: LeadDataset,
@@ -181,6 +193,9 @@ def run_batch_send(
             raise BatchSendError("恢复任务的名单文件不匹配。")
         if dataset.total_rows != int(task["total_count"]):
             raise BatchSendError("恢复任务的名单行数不匹配。")
+        stored_fingerprint = task.get("dataset_fingerprint", "")
+        if stored_fingerprint and stored_fingerprint != _dataset_fingerprint(dataset):
+            raise BatchSendError("恢复任务的名单内容不匹配。")
         task_id = resume_task_id
         recorded_row_indexes = storage.list_recorded_row_indexes(task_id)
         success_count, failure_count, skipped_count, review_count = _counts_from_status_summary(
@@ -188,7 +203,12 @@ def run_batch_send(
         )
     else:
         task = None
-        task_id = storage.create_send_task(task_label, dataset.source_path, dataset.total_rows)
+        task_id = storage.create_send_task(
+            task_label,
+            dataset.source_path,
+            dataset.total_rows,
+            dataset_fingerprint=_dataset_fingerprint(dataset),
+        )
         recorded_row_indexes = set()
         success_count = 0
         failure_count = 0
@@ -415,6 +435,26 @@ def run_batch_send(
                 storage.update_send_task(
                     task_id,
                     "stopped",
+                    success_count,
+                    failure_count,
+                    skipped_count=skipped_count,
+                    review_count=review_count,
+                )
+                return task_id
+            if stop_event.is_set():
+                storage.update_send_task(
+                    task_id,
+                    "stopped",
+                    success_count,
+                    failure_count,
+                    skipped_count=skipped_count,
+                    review_count=review_count,
+                )
+                return task_id
+            if pause_event is not None and pause_event.is_set():
+                storage.update_send_task(
+                    task_id,
+                    "paused",
                     success_count,
                     failure_count,
                     skipped_count=skipped_count,

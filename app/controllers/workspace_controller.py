@@ -18,6 +18,7 @@ from app.services.domain_auth import (
 )
 from app.services.importer import (
     ImporterError,
+    LeadDataset,
     auto_map_fields,
     extract_email_address,
     format_dataset_preview,
@@ -370,7 +371,7 @@ def start_batch_send(app, resume_task_id=None):
 
     app.send_stop_event.clear()
     app.send_pause_event.clear()
-    dataset = app.dataset
+    dataset = _snapshot_dataset(app.dataset)
     ai_settings = app.collect_ai_settings()
     template = app.get_template_text()
     duplicate_policy = app.dedupe_policy_var.get().strip() or "review"
@@ -411,6 +412,16 @@ def start_batch_send(app, resume_task_id=None):
 
     app.send_thread = threading.Thread(target=worker, daemon=True)
     app.send_thread.start()
+
+
+def _snapshot_dataset(dataset: LeadDataset) -> LeadDataset:
+    return LeadDataset(
+        source_path=str(dataset.source_path),
+        headers=list(dataset.headers),
+        rows=[dict(row) for row in dataset.rows],
+        field_mapping=dict(dataset.field_mapping),
+        mapping_details={field: dict(details) for field, details in dataset.mapping_details.items()},
+    )
 
 
 def pause_batch_send(app):

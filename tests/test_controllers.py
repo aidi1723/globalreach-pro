@@ -387,6 +387,16 @@ def test_start_batch_send_resume_forwards_governance_pause_event_and_resume_id(m
     workspace_controller.start_batch_send(app, resume_task_id=123)
 
     original_dataset = app.dataset
+    original_dataset.field_mapping["email"] = "MutatedEmail"
+    original_dataset.mapping_details["email"] = {
+        "header": "MutatedEmail",
+        "confidence": "manual",
+        "reason": "mutated after start",
+    }
+    original_dataset.rows[0]["Email"] = "mutated@example.com"
+    original_dataset.rows.append(
+        {"Email": "late@example.com", "Company": "Late", "Name": "Late", "Product": "P"}
+    )
     app.dataset = make_dataset(
         [{"Email": "other@example.com", "Company": "B", "Name": "B", "Product": "P"}],
         source_path="other.csv",
@@ -397,7 +407,13 @@ def test_start_batch_send_resume_forwards_governance_pause_event_and_resume_id(m
     assert len(pending_threads) == 1
     pending_threads[0].target()
 
-    assert captured["dataset"] is original_dataset
+    assert captured["dataset"] is not original_dataset
+    assert captured["dataset"].source_path == "paused.csv"
+    assert captured["dataset"].field_mapping["email"] == "Email"
+    assert captured["dataset"].mapping_details["email"]["header"] == "Email"
+    assert captured["dataset"].rows == [
+        {"Email": "buyer@example.com", "Company": "A", "Name": "A", "Product": "P"}
+    ]
     assert captured["duplicate_policy"] == "send"
     assert captured["attachment_paths"] == ["catalog.pdf"]
     assert captured["governance"] == GovernanceSettings(25, 5)

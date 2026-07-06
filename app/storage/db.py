@@ -88,6 +88,7 @@ class AppStorage:
                     source_file TEXT NOT NULL,
                     status TEXT NOT NULL,
                     total_count INTEGER NOT NULL,
+                    dataset_fingerprint TEXT NOT NULL DEFAULT '',
                     success_count INTEGER NOT NULL,
                     failure_count INTEGER NOT NULL,
                     skipped_count INTEGER NOT NULL DEFAULT 0,
@@ -170,6 +171,7 @@ class AppStorage:
             )
             self._ensure_column(conn, "send_tasks", "skipped_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "send_tasks", "review_count", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "send_tasks", "dataset_fingerprint", "TEXT NOT NULL DEFAULT ''")
             self._migrate_plaintext_secrets(conn)
 
     def _ensure_column(self, conn, table_name: str, column_name: str, definition: str):
@@ -373,18 +375,25 @@ class AppStorage:
             conn.execute("DELETE FROM smtp_accounts WHERE label = ?", (label,))
         self.secret_store.delete(f"smtp:{label}:password")
 
-    def create_send_task(self, label: str, source_file: str, total_count: int) -> int:
+    def create_send_task(
+        self,
+        label: str,
+        source_file: str,
+        total_count: int,
+        dataset_fingerprint: str = "",
+    ) -> int:
         now = datetime.now().isoformat(timespec="seconds")
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO send_tasks(
-                    label, source_file, status, total_count, success_count, failure_count,
-                    skipped_count, review_count, created_at, started_at, finished_at
+                    label, source_file, status, total_count, dataset_fingerprint,
+                    success_count, failure_count, skipped_count, review_count,
+                    created_at, started_at, finished_at
                 )
-                VALUES(?, ?, 'pending', ?, 0, 0, 0, 0, ?, '', '')
+                VALUES(?, ?, 'pending', ?, ?, 0, 0, 0, 0, ?, '', '')
                 """,
-                (label, source_file, total_count, now),
+                (label, source_file, total_count, dataset_fingerprint, now),
             )
             return int(cursor.lastrowid)
 
@@ -491,7 +500,8 @@ class AppStorage:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, label, source_file, status, total_count, success_count, failure_count,
+                SELECT id, label, source_file, status, total_count, dataset_fingerprint,
+                       success_count, failure_count,
                        skipped_count, review_count, created_at, started_at, finished_at
                 FROM send_tasks
                 WHERE id = ?
@@ -506,13 +516,14 @@ class AppStorage:
             "source_file": row[2],
             "status": row[3],
             "total_count": str(row[4]),
-            "success_count": str(row[5]),
-            "failure_count": str(row[6]),
-            "skipped_count": str(row[7]),
-            "review_count": str(row[8]),
-            "created_at": row[9],
-            "started_at": row[10],
-            "finished_at": row[11],
+            "dataset_fingerprint": row[5],
+            "success_count": str(row[6]),
+            "failure_count": str(row[7]),
+            "skipped_count": str(row[8]),
+            "review_count": str(row[9]),
+            "created_at": row[10],
+            "started_at": row[11],
+            "finished_at": row[12],
         }
 
     def list_recorded_row_indexes(self, task_id: int) -> set[int]:
@@ -544,7 +555,8 @@ class AppStorage:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, label, source_file, status, total_count, success_count, failure_count,
+                SELECT id, label, source_file, status, total_count, dataset_fingerprint,
+                       success_count, failure_count,
                        skipped_count, review_count, created_at, started_at, finished_at
                 FROM send_tasks
                 ORDER BY id DESC
@@ -559,13 +571,14 @@ class AppStorage:
             "source_file": row[2],
             "status": row[3],
             "total_count": str(row[4]),
-            "success_count": str(row[5]),
-            "failure_count": str(row[6]),
-            "skipped_count": str(row[7]),
-            "review_count": str(row[8]),
-            "created_at": row[9],
-            "started_at": row[10],
-            "finished_at": row[11],
+            "dataset_fingerprint": row[5],
+            "success_count": str(row[6]),
+            "failure_count": str(row[7]),
+            "skipped_count": str(row[8]),
+            "review_count": str(row[9]),
+            "created_at": row[10],
+            "started_at": row[11],
+            "finished_at": row[12],
         }
 
     def recipient_send_history(self, recipient_email: str, limit: int = 10) -> list[dict[str, str]]:

@@ -3,7 +3,7 @@ import threading
 import pytest
 
 from app.services.ai_writer import AISettings, EmailDraft
-from app.services.batch_sender import BatchSendError, GovernanceSettings, run_batch_send
+from app.services.batch_sender import BatchSendError, BatchSendSettings, GovernanceSettings, run_batch_send
 from app.services.secret_store import EphemeralSecretStore
 from app.services.smtp_service import SMTPConfigError
 from app.services.suppression import SuppressionService
@@ -308,6 +308,57 @@ def test_stop_event_wins_when_stop_and_pause_are_set_after_row(monkeypatch, tmp_
     assert storage.list_recorded_row_indexes(task_id) == {0}
 
 
+def test_pause_during_inter_email_delay_stops_before_next_row(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    dataset = make_dataset(
+        [
+            {"Email": "first@example.com", "Company": "A", "Name": "A", "Product": "P"},
+            {"Email": "second@example.com", "Company": "B", "Name": "B", "Product": "P"},
+        ]
+    )
+    pause_event = threading.Event()
+    send_calls = []
+
+    class PauseDuringDelayEvent:
+        def __init__(self):
+            self._event = threading.Event()
+
+        def is_set(self):
+            return self._event.is_set()
+
+        def set(self):
+            self._event.set()
+
+        def wait(self, _timeout):
+            pause_event.set()
+            return self._event.is_set()
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+
+    def capture_send(_config, recipient_email, *_args, **_kwargs):
+        send_calls.append(recipient_email)
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", capture_send)
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="pause-during-delay",
+        duplicate_policy="send",
+        stop_event=PauseDuringDelayEvent(),
+        pause_event=pause_event,
+        settings=BatchSendSettings(per_email_delay_seconds=1.0),
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    task = storage.get_send_task(task_id)
+    assert task["status"] == "paused"
+    assert send_calls == ["first@example.com"]
+    assert storage.list_recorded_row_indexes(task_id) == {0}
+
+
 def test_resume_source_mismatch_raises_before_sending(monkeypatch, tmp_path):
     storage = make_storage(tmp_path)
     task_id = storage.create_send_task("paused", "original.csv", 1)
@@ -369,6 +420,74 @@ def test_resume_row_count_mismatch_raises_before_sending(monkeypatch, tmp_path):
         )
 
     assert send_calls == []
+    assert storage.get_send_task(task_id)["status"] == "paused"
+
+
+def test_resume_content_fingerprint_mismatch_raises_before_sending(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    original_dataset = make_dataset(
+        [
+            {"Email": "first@example.com", "Company": "A", "Name": "A", "Product": "P"},
+            {"Email": "second@example.com", "Company": "B", "Name": "B", "Product": "P"},
+        ],
+        source_path="same.csv",
+    )
+    pause_event = threading.Event()
+    send_calls = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+
+    def pause_after_first_send(_config, recipient_email, *_args, **_kwargs):
+        send_calls.append(recipient_email)
+        pause_event.set()
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", pause_after_first_send)
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=original_dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="fingerprint",
+        duplicate_policy="send",
+        stop_event=threading.Event(),
+        pause_event=pause_event,
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    paused_task = storage.get_send_task(task_id)
+    assert paused_task["status"] == "paused"
+    assert paused_task["dataset_fingerprint"]
+
+    changed_dataset = make_dataset(
+        [
+            {"Email": "second@example.com", "Company": "B", "Name": "B", "Product": "P"},
+            {"Email": "first@example.com", "Company": "A", "Name": "A", "Product": "P"},
+        ],
+        source_path="same.csv",
+    )
+    pause_event.clear()
+
+    def capture_resume_send(_config, recipient_email, *_args, **_kwargs):
+        send_calls.append(recipient_email)
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", capture_resume_send)
+
+    with pytest.raises(BatchSendError, match="恢复任务的名单内容不匹配。"):
+        run_batch_send(
+            storage=storage,
+            dataset=changed_dataset,
+            template="Subject: Hello\n\nBody",
+            ai_settings=AISettings(),
+            task_label="fingerprint",
+            duplicate_policy="send",
+            stop_event=threading.Event(),
+            pause_event=pause_event,
+            resume_task_id=task_id,
+            governance=GovernanceSettings(quota_now="2026-07-06T11:05:00"),
+        )
+
+    assert send_calls == ["first@example.com"]
     assert storage.get_send_task(task_id)["status"] == "paused"
 
 
