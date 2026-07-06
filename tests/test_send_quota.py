@@ -1,3 +1,5 @@
+import sqlite3
+
 from app.services.secret_store import EphemeralSecretStore
 from app.services.send_quota import SendQuotaService
 from app.storage.db import AppStorage
@@ -72,6 +74,24 @@ def test_storage_normalizes_offset_aware_usage_timestamps(tmp_path):
     )
 
     assert count == 1
+
+
+def test_storage_stores_usage_timestamps_as_canonical_utc_seconds(tmp_path):
+    storage = make_storage(tmp_path)
+    storage.add_account_send_usage(
+        "acc-1",
+        "buyer@example.com",
+        task_id=1,
+        sent_at="2026-07-06T10:30:00+08:00",
+    )
+
+    with sqlite3.connect(storage.db_path) as conn:
+        row = conn.execute(
+            "SELECT sent_at FROM account_send_usage WHERE account_label = ?",
+            ("acc-1",),
+        ).fetchone()
+
+    assert row[0] == "2026-07-06T02:30:00"
 
 
 def test_storage_normalizes_offset_aware_query_bounds(tmp_path):

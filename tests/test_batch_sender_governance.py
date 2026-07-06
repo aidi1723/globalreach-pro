@@ -3,6 +3,7 @@ import threading
 from app.services.ai_writer import AISettings, EmailDraft
 from app.services.batch_sender import GovernanceSettings, run_batch_send
 from app.services.secret_store import EphemeralSecretStore
+from app.services.smtp_service import SMTPConfigError
 from app.services.suppression import SuppressionService
 from app.storage.db import AppStorage
 from tests.helpers import make_dataset
@@ -164,6 +165,42 @@ def test_successful_send_records_usage_but_suppressed_row_does_not(monkeypatch, 
     assert account_usage_count(storage, "acc-2") == 0
 
 
+def test_smtp_failure_does_not_record_quota_usage(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    dataset = make_dataset(
+        [{"Email": "fail@example.com", "Company": "A", "Name": "A", "Product": "P"}]
+    )
+    attempts = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+
+    def fail_send(_config, recipient_email, *_args, **_kwargs):
+        attempts.append(recipient_email)
+        raise SMTPConfigError("SMTP 发送失败：authentication failed")
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", fail_send)
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="smtp-failure",
+        duplicate_policy="send",
+        stop_event=threading.Event(),
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    task = storage.latest_send_task()
+    result = storage.list_send_results(task_id, limit=1)[0]
+    assert task["id"] == str(task_id)
+    assert task["status"] == "completed_with_errors"
+    assert task["failure_count"] == "1"
+    assert result["status"] == "failed"
+    assert attempts == ["fail@example.com"]
+    assert account_usage_count(storage, "acc-1") == 0
+
+
 def test_pause_after_first_row_and_resume_sends_only_unrecorded_row(monkeypatch, tmp_path):
     storage = make_storage(tmp_path)
     dataset = make_dataset(
@@ -231,3 +268,76 @@ def test_pause_after_first_row_and_resume_sends_only_unrecorded_row(monkeypatch,
     assert [item["status"] for item in results] == ["sent", "sent"]
     assert account_usage_count(storage, "acc-1") == 1
     assert account_usage_count(storage, "acc-2") == 1
+
+
+def test_resume_preserves_existing_mixed_status_counts_and_skips_recorded_rows(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    SuppressionService(storage).add("blocked@example.com", reason="unsubscribe", source="manual")
+    dataset = make_dataset(
+        [
+            {"Email": "blocked@example.com", "Company": "A", "Name": "A", "Product": "P"},
+            {"Email": "first@example.com", "Company": "B", "Name": "B", "Product": "P"},
+            {"Email": "second@example.com", "Company": "C", "Name": "C", "Product": "P"},
+        ]
+    )
+    pause_event = threading.Event()
+    send_calls = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+
+    def pause_after_first_send(_config, recipient_email, *_args, **_kwargs):
+        send_calls.append(recipient_email)
+        pause_event.set()
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", pause_after_first_send)
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="mixed-resume",
+        duplicate_policy="send",
+        stop_event=threading.Event(),
+        pause_event=pause_event,
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    paused_task = storage.latest_send_task()
+    assert paused_task["status"] == "paused"
+    assert paused_task["success_count"] == "1"
+    assert paused_task["skipped_count"] == "1"
+    assert storage.list_recorded_row_indexes(task_id) == {0, 1}
+    assert send_calls == ["first@example.com"]
+
+    pause_event.clear()
+
+    def capture_resume_send(_config, recipient_email, *_args, **_kwargs):
+        send_calls.append(recipient_email)
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", capture_resume_send)
+
+    resumed_task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="mixed-resume",
+        duplicate_policy="send",
+        stop_event=threading.Event(),
+        pause_event=pause_event,
+        resume_task_id=task_id,
+        governance=GovernanceSettings(quota_now="2026-07-06T11:05:00"),
+    )
+
+    final_task = storage.latest_send_task()
+    results = list(reversed(storage.list_send_results(task_id, limit=10)))
+    assert resumed_task_id == task_id
+    assert final_task["status"] == "completed_with_skips"
+    assert final_task["success_count"] == "2"
+    assert final_task["failure_count"] == "0"
+    assert final_task["skipped_count"] == "1"
+    assert final_task["review_count"] == "0"
+    assert send_calls == ["first@example.com", "second@example.com"]
+    assert [item["row_index"] for item in results] == ["0", "1", "2"]
+    assert [item["status"] for item in results] == ["suppressed", "sent", "sent"]
