@@ -45,7 +45,7 @@ class SendQuotaService:
         if hourly_limit > 0:
             hour_start = (current - timedelta(hours=1)).isoformat(timespec="seconds")
             hourly_count = self.storage.count_account_usage_since(account_label, hour_start)
-            if hourly_count > hourly_limit:
+            if hourly_count >= hourly_limit:
                 return QuotaDecision(
                     False,
                     "hourly_limit_reached",
