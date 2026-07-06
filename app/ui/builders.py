@@ -793,12 +793,12 @@ def setup_preview_tab(app):
     )
     app.batch_retries_entry = ctk.CTkEntry(task_settings)
     app.batch_retries_entry.grid(row=0, column=3, sticky="ew", padx=(10, 0), pady=4)
-    ctk.CTkLabel(task_settings, text="每日/账号", font=("Arial", 12)).grid(
+    ctk.CTkLabel(task_settings, text="每日/账号(0=不限制)", font=("Arial", 12)).grid(
         row=1, column=0, sticky="w", pady=4
     )
     app.daily_limit_entry = ctk.CTkEntry(task_settings)
     app.daily_limit_entry.grid(row=1, column=1, sticky="ew", padx=(10, 18), pady=4)
-    ctk.CTkLabel(task_settings, text="每小时/账号", font=("Arial", 12)).grid(
+    ctk.CTkLabel(task_settings, text="每小时/账号(0=不限制)", font=("Arial", 12)).grid(
         row=1, column=2, sticky="w", pady=4
     )
     app.hourly_limit_entry = ctk.CTkEntry(task_settings)

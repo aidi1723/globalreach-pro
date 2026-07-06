@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
 from app.services.ai_writer import AISettings, generate_email_draft
@@ -135,6 +136,10 @@ def _final_task_status(failure_count: int, skipped_count: int, review_count: int
     return "completed"
 
 
+def _normalized_source_path(source_path: str) -> Path:
+    return Path(source_path).expanduser().resolve(strict=False)
+
+
 def run_batch_send(
     storage: AppStorage,
     dataset: LeadDataset,
@@ -172,6 +177,10 @@ def run_batch_send(
             raise BatchSendError("要恢复的任务不存在。")
         if task["status"] != "paused":
             raise BatchSendError("只有已暂停的任务可以恢复。")
+        if _normalized_source_path(dataset.source_path) != _normalized_source_path(task["source_file"]):
+            raise BatchSendError("恢复任务的名单文件不匹配。")
+        if dataset.total_rows != int(task["total_count"]):
+            raise BatchSendError("恢复任务的名单行数不匹配。")
         task_id = resume_task_id
         recorded_row_indexes = storage.list_recorded_row_indexes(task_id)
         success_count, failure_count, skipped_count, review_count = _counts_from_status_summary(

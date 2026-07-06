@@ -329,14 +329,16 @@ def test_stop_batch_send_clears_pause_before_setting_stop():
 
 def test_start_batch_send_resume_forwards_governance_pause_event_and_resume_id(monkeypatch):
     captured = {}
+    pending_threads = []
 
-    class ImmediateThread:
+    class DelayedThread:
         def __init__(self, target, daemon=False):
             self.target = target
             self.daemon = daemon
+            pending_threads.append(self)
 
         def start(self):
-            self.target()
+            return None
 
         def is_alive(self):
             return False
@@ -379,11 +381,25 @@ def test_start_batch_send_resume_forwards_governance_pause_event_and_resume_id(m
     app._handle_batch_finish = lambda task_id: app.finish_calls.append(task_id)
     app._handle_batch_error = lambda exc: app.error_calls.append(exc)
 
-    monkeypatch.setattr(workspace_controller.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(workspace_controller.threading, "Thread", DelayedThread)
     monkeypatch.setattr(workspace_controller, "run_batch_send", fake_run_batch_send)
 
     workspace_controller.start_batch_send(app, resume_task_id=123)
 
+    original_dataset = app.dataset
+    app.dataset = make_dataset(
+        [{"Email": "other@example.com", "Company": "B", "Name": "B", "Product": "P"}],
+        source_path="other.csv",
+    )
+    app.dedupe_policy_var.set("review")
+    app.smtp_attachment_paths.append("mutated.pdf")
+
+    assert len(pending_threads) == 1
+    pending_threads[0].target()
+
+    assert captured["dataset"] is original_dataset
+    assert captured["duplicate_policy"] == "send"
+    assert captured["attachment_paths"] == ["catalog.pdf"]
     assert captured["governance"] == GovernanceSettings(25, 5)
     assert captured["pause_event"] is app.send_pause_event
     assert captured["resume_task_id"] == 123

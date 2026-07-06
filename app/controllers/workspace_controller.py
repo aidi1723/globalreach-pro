@@ -370,10 +370,13 @@ def start_batch_send(app, resume_task_id=None):
 
     app.send_stop_event.clear()
     app.send_pause_event.clear()
+    dataset = app.dataset
     ai_settings = app.collect_ai_settings()
     template = app.get_template_text()
+    duplicate_policy = app.dedupe_policy_var.get().strip() or "review"
+    attachment_paths = list(app.smtp_attachment_paths)
     if resume_task_id is None:
-        task_label = f"Batch {Path(app.dataset.source_path).name} {datetime.now().strftime('%H%M%S')}"
+        task_label = f"Batch {Path(dataset.source_path).name} {datetime.now().strftime('%H%M%S')}"
     else:
         task = app.storage.get_send_task(int(resume_task_id))
         task_label = task["label"] if task else f"Resume task {resume_task_id}"
@@ -387,13 +390,13 @@ def start_batch_send(app, resume_task_id=None):
         try:
             task_id = run_batch_send(
                 storage=app.storage,
-                dataset=app.dataset,
+                dataset=dataset,
                 template=template,
                 ai_settings=ai_settings,
                 task_label=task_label,
-                duplicate_policy=app.dedupe_policy_var.get().strip() or "review",
+                duplicate_policy=duplicate_policy,
                 stop_event=app.send_stop_event,
-                attachment_paths=app.smtp_attachment_paths,
+                attachment_paths=attachment_paths,
                 settings=send_settings,
                 governance=governance_settings,
                 pause_event=app.send_pause_event,

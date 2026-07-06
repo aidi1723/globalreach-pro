@@ -308,6 +308,70 @@ def test_stop_event_wins_when_stop_and_pause_are_set_after_row(monkeypatch, tmp_
     assert storage.list_recorded_row_indexes(task_id) == {0}
 
 
+def test_resume_source_mismatch_raises_before_sending(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    task_id = storage.create_send_task("paused", "original.csv", 1)
+    storage.update_send_task(task_id, "paused", 0, 0)
+    send_calls = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+    monkeypatch.setattr(
+        "app.services.batch_sender.send_email",
+        lambda *_args, **_kwargs: send_calls.append("called"),
+    )
+
+    with pytest.raises(BatchSendError, match="恢复任务的名单文件不匹配。"):
+        run_batch_send(
+            storage=storage,
+            dataset=make_dataset(
+                [{"Email": "buyer@example.com", "Company": "A", "Name": "A", "Product": "P"}],
+                source_path="different.csv",
+            ),
+            template="Subject: Hello\n\nBody",
+            ai_settings=AISettings(),
+            task_label="paused",
+            duplicate_policy="send",
+            stop_event=threading.Event(),
+            resume_task_id=task_id,
+            governance=GovernanceSettings(quota_now="2026-07-06T11:05:00"),
+        )
+
+    assert send_calls == []
+    assert storage.get_send_task(task_id)["status"] == "paused"
+
+
+def test_resume_row_count_mismatch_raises_before_sending(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    task_id = storage.create_send_task("paused", "same.csv", 2)
+    storage.update_send_task(task_id, "paused", 0, 0)
+    send_calls = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+    monkeypatch.setattr(
+        "app.services.batch_sender.send_email",
+        lambda *_args, **_kwargs: send_calls.append("called"),
+    )
+
+    with pytest.raises(BatchSendError, match="恢复任务的名单行数不匹配。"):
+        run_batch_send(
+            storage=storage,
+            dataset=make_dataset(
+                [{"Email": "buyer@example.com", "Company": "A", "Name": "A", "Product": "P"}],
+                source_path="same.csv",
+            ),
+            template="Subject: Hello\n\nBody",
+            ai_settings=AISettings(),
+            task_label="paused",
+            duplicate_policy="send",
+            stop_event=threading.Event(),
+            resume_task_id=task_id,
+            governance=GovernanceSettings(quota_now="2026-07-06T11:05:00"),
+        )
+
+    assert send_calls == []
+    assert storage.get_send_task(task_id)["status"] == "paused"
+
+
 def test_resume_preserves_existing_mixed_status_counts_and_skips_recorded_rows(monkeypatch, tmp_path):
     storage = make_storage(tmp_path)
     SuppressionService(storage).add("blocked@example.com", reason="unsubscribe", source="manual")
