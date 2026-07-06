@@ -56,6 +56,42 @@ def test_future_usage_does_not_count_against_quota(tmp_path):
     assert allowed.allowed is True
 
 
+def test_storage_normalizes_offset_aware_usage_timestamps(tmp_path):
+    storage = make_storage(tmp_path)
+    storage.add_account_send_usage(
+        "acc-1",
+        "buyer@example.com",
+        task_id=1,
+        sent_at="2026-07-06T10:30:00+08:00",
+    )
+
+    count = storage.count_account_usage_between(
+        "acc-1",
+        "2026-07-06T02:00:00",
+        "2026-07-06T03:00:00",
+    )
+
+    assert count == 1
+
+
+def test_storage_normalizes_offset_aware_query_bounds(tmp_path):
+    storage = make_storage(tmp_path)
+    storage.add_account_send_usage(
+        "acc-1",
+        "buyer@example.com",
+        task_id=1,
+        sent_at="2026-07-06T02:30:00",
+    )
+
+    count = storage.count_account_usage_between(
+        "acc-1",
+        "2026-07-06T10:00:00+08:00",
+        "2026-07-06T11:00:00+08:00",
+    )
+
+    assert count == 1
+
+
 def test_offset_aware_future_usage_does_not_count_against_quota(tmp_path):
     storage = make_storage(tmp_path)
     quota = SendQuotaService(storage)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -15,6 +15,15 @@ SENSITIVE_STATE_KEYS = {
 }
 
 SECRET_REF_PREFIX = "secret://globalreach-pro/"
+
+
+def _canonical_quota_timestamp(value: str) -> str:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 class AppStorage:
@@ -592,7 +601,12 @@ class AppStorage:
                 INSERT INTO account_send_usage(account_label, recipient_email, task_id, sent_at)
                 VALUES(?, ?, ?, ?)
                 """,
-                (account_label, recipient_email.strip().lower(), task_id, sent_at),
+                (
+                    account_label,
+                    recipient_email.strip().lower(),
+                    task_id,
+                    _canonical_quota_timestamp(sent_at),
+                ),
             )
 
     def count_account_usage_between(
@@ -601,6 +615,8 @@ class AppStorage:
         window_start: str,
         window_end: str,
     ) -> int:
+        canonical_start = _canonical_quota_timestamp(window_start)
+        canonical_end = _canonical_quota_timestamp(window_end)
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -610,7 +626,7 @@ class AppStorage:
                   AND sent_at >= ?
                   AND sent_at <= ?
                 """,
-                (account_label, window_start, window_end),
+                (account_label, canonical_start, canonical_end),
             ).fetchone()
         return int(row[0]) if row else 0
 
