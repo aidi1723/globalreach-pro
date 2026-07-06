@@ -1,7 +1,9 @@
 import threading
 
+import pytest
+
 from app.services.ai_writer import AISettings, EmailDraft
-from app.services.batch_sender import GovernanceSettings, run_batch_send
+from app.services.batch_sender import BatchSendError, GovernanceSettings, run_batch_send
 from app.services.secret_store import EphemeralSecretStore
 from app.services.smtp_service import SMTPConfigError
 from app.services.suppression import SuppressionService
@@ -341,3 +343,93 @@ def test_resume_preserves_existing_mixed_status_counts_and_skips_recorded_rows(m
     assert send_calls == ["first@example.com", "second@example.com"]
     assert [item["row_index"] for item in results] == ["0", "1", "2"]
     assert [item["status"] for item in results] == ["suppressed", "sent", "sent"]
+
+
+def test_resume_stopped_task_raises_without_sending(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    dataset = make_dataset(
+        [{"Email": "stopped@example.com", "Company": "A", "Name": "A", "Product": "P"}]
+    )
+    stop_event = threading.Event()
+    stop_event.set()
+    send_calls = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+    monkeypatch.setattr(
+        "app.services.batch_sender.send_email",
+        lambda *_args, **_kwargs: send_calls.append("called"),
+    )
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="stopped",
+        duplicate_policy="send",
+        stop_event=stop_event,
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    assert storage.latest_send_task()["status"] == "stopped"
+
+    with pytest.raises(BatchSendError, match="只有已暂停的任务可以恢复。"):
+        run_batch_send(
+            storage=storage,
+            dataset=dataset,
+            template="Subject: Hello\n\nBody",
+            ai_settings=AISettings(),
+            task_label="stopped",
+            duplicate_policy="send",
+            stop_event=threading.Event(),
+            resume_task_id=task_id,
+            governance=GovernanceSettings(quota_now="2026-07-06T11:05:00"),
+        )
+
+    assert storage.get_send_task(task_id)["status"] == "stopped"
+    assert send_calls == []
+
+
+def test_resume_completed_task_raises_without_sending(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    dataset = make_dataset(
+        [{"Email": "done@example.com", "Company": "A", "Name": "A", "Product": "P"}]
+    )
+    send_calls = []
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+
+    def capture_send(_config, recipient_email, *_args, **_kwargs):
+        send_calls.append(recipient_email)
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", capture_send)
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="completed",
+        duplicate_policy="send",
+        stop_event=threading.Event(),
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    assert storage.latest_send_task()["status"] == "completed"
+    send_calls.clear()
+
+    with pytest.raises(BatchSendError, match="只有已暂停的任务可以恢复。"):
+        run_batch_send(
+            storage=storage,
+            dataset=dataset,
+            template="Subject: Hello\n\nBody",
+            ai_settings=AISettings(),
+            task_label="completed",
+            duplicate_policy="send",
+            stop_event=threading.Event(),
+            resume_task_id=task_id,
+            governance=GovernanceSettings(quota_now="2026-07-06T11:05:00"),
+        )
+
+    assert storage.get_send_task(task_id)["status"] == "completed"
+    assert send_calls == []

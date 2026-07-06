@@ -170,6 +170,8 @@ def run_batch_send(
         task = storage.get_send_task(resume_task_id)
         if task is None:
             raise BatchSendError("要恢复的任务不存在。")
+        if task["status"] != "paused":
+            raise BatchSendError("只有已暂停的任务可以恢复。")
         task_id = resume_task_id
         recorded_row_indexes = storage.list_recorded_row_indexes(task_id)
         success_count, failure_count, skipped_count, review_count = _counts_from_status_summary(
