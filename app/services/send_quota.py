@@ -31,11 +31,14 @@ class SendQuotaService:
         now: str | None = None,
     ) -> QuotaDecision:
         current = _parse_now(now)
+        current_at = current.isoformat(timespec="seconds")
         if daily_limit > 0:
-            day_start = current.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(
-                timespec="seconds"
+            day_start = (current - timedelta(days=1)).isoformat(timespec="seconds")
+            daily_count = self.storage.count_account_usage_between(
+                account_label,
+                day_start,
+                current_at,
             )
-            daily_count = self.storage.count_account_usage_since(account_label, day_start)
             if daily_count >= daily_limit:
                 return QuotaDecision(
                     False,
@@ -44,7 +47,11 @@ class SendQuotaService:
                 )
         if hourly_limit > 0:
             hour_start = (current - timedelta(hours=1)).isoformat(timespec="seconds")
-            hourly_count = self.storage.count_account_usage_since(account_label, hour_start)
+            hourly_count = self.storage.count_account_usage_between(
+                account_label,
+                hour_start,
+                current_at,
+            )
             if hourly_count >= hourly_limit:
                 return QuotaDecision(
                     False,

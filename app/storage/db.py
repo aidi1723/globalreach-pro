@@ -595,7 +595,12 @@ class AppStorage:
                 (account_label, recipient_email.strip().lower(), task_id, sent_at),
             )
 
-    def count_account_usage_since(self, account_label: str, since: str) -> int:
+    def count_account_usage_between(
+        self,
+        account_label: str,
+        window_start: str,
+        window_end: str,
+    ) -> int:
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -603,8 +608,9 @@ class AppStorage:
                 FROM account_send_usage
                 WHERE account_label = ?
                   AND sent_at >= ?
+                  AND sent_at <= ?
                 """,
-                (account_label, since),
+                (account_label, window_start, window_end),
             ).fetchone()
         return int(row[0]) if row else 0
 
