@@ -422,11 +422,26 @@ def resume_batch_send(app):
     if not task or task["status"] != "paused":
         messagebox.showinfo("提示", "最近没有可恢复的暂停任务。")
         return
+    if not app.dataset:
+        messagebox.showerror("无法恢复任务", "请先载入暂停任务对应的名单文件后再恢复。")
+        return
+
+    task_source = task.get("source_file", "")
+    loaded_source = getattr(app.dataset, "source_path", "")
+    if Path(loaded_source).expanduser().resolve(strict=False) != Path(task_source).expanduser().resolve(strict=False):
+        messagebox.showerror(
+            "无法恢复任务",
+            f"当前载入名单与暂停任务来源不一致，请先载入 {Path(task_source).name} 后再恢复。",
+        )
+        return
+
     app.send_pause_event.clear()
+    app.add_log("恢复任务将使用当前界面的发送设置和治理上限。", level="WARN")
     app.start_batch_send(resume_task_id=int(task["id"]))
 
 
 def stop_batch_send(app):
+    app.send_pause_event.clear()
     app.send_stop_event.set()
     app.add_log("已请求停止当前批量发送任务。", level="WARN")
     app.task_status_box.insert("end", "已请求停止任务，等待当前发送完成...\n")

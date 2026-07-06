@@ -379,6 +379,17 @@ def run_batch_send(
                 )
             )
 
+        if stop_event.is_set():
+            storage.update_send_task(
+                task_id,
+                "stopped",
+                success_count,
+                failure_count,
+                skipped_count=skipped_count,
+                review_count=review_count,
+            )
+            return task_id
+
         if pause_event is not None and pause_event.is_set():
             storage.update_send_task(
                 task_id,

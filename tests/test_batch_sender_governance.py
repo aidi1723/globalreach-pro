@@ -272,6 +272,42 @@ def test_pause_after_first_row_and_resume_sends_only_unrecorded_row(monkeypatch,
     assert account_usage_count(storage, "acc-2") == 1
 
 
+def test_stop_event_wins_when_stop_and_pause_are_set_after_row(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    dataset = make_dataset(
+        [
+            {"Email": "first@example.com", "Company": "A", "Name": "A", "Product": "P"},
+            {"Email": "second@example.com", "Company": "B", "Name": "B", "Product": "P"},
+        ]
+    )
+    pause_event = threading.Event()
+    stop_event = threading.Event()
+
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+
+    def request_pause_and_stop(_config, *_args, **_kwargs):
+        pause_event.set()
+        stop_event.set()
+
+    monkeypatch.setattr("app.services.batch_sender.send_email", request_pause_and_stop)
+
+    task_id = run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="stop-over-pause",
+        duplicate_policy="send",
+        stop_event=stop_event,
+        pause_event=pause_event,
+        governance=GovernanceSettings(quota_now="2026-07-06T11:00:00"),
+    )
+
+    task = storage.get_send_task(task_id)
+    assert task["status"] == "stopped"
+    assert storage.list_recorded_row_indexes(task_id) == {0}
+
+
 def test_resume_preserves_existing_mixed_status_counts_and_skips_recorded_rows(monkeypatch, tmp_path):
     storage = make_storage(tmp_path)
     SuppressionService(storage).add("blocked@example.com", reason="unsubscribe", source="manual")

@@ -1,4 +1,5 @@
 import sys
+import threading
 import types
 
 fake_tkinter = types.ModuleType("tkinter")
@@ -77,6 +78,22 @@ class FakeStorage:
 
     def set_state(self, key, value):
         self.values[key] = value
+
+
+class FakeWorkspaceStorage(FakeStorage):
+    def __init__(self, values=None, latest_task=None, task=None):
+        super().__init__(values or {})
+        self.latest_task = latest_task
+        self.task = task
+
+    def latest_send_task(self):
+        return self.latest_task
+
+    def get_send_task(self, _task_id):
+        return self.task
+
+    def list_smtp_accounts(self):
+        return [{"label": "acc-1"}]
 
 
 class FakeStateApp:
@@ -224,6 +241,155 @@ def test_collect_governance_settings_persists_valid_limits():
     assert settings == GovernanceSettings(25, 5)
     assert app.storage.values["daily_limit_per_account"] == "25"
     assert app.storage.values["hourly_limit_per_account"] == "5"
+
+
+def test_resume_batch_send_rejects_mismatched_loaded_dataset(monkeypatch):
+    messagebox_calls = []
+    app = types.SimpleNamespace(
+        dataset=make_dataset(
+            [{"Email": "buyer@example.com", "Company": "A", "Name": "A", "Product": "P"}],
+            source_path="loaded.csv",
+        ),
+        storage=FakeWorkspaceStorage(
+            latest_task={
+                "id": "123",
+                "status": "paused",
+                "source_file": "paused.csv",
+                "label": "Paused task",
+            }
+        ),
+        send_pause_event=threading.Event(),
+        start_calls=[],
+    )
+    app.start_batch_send = lambda **kwargs: app.start_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        workspace_controller.messagebox,
+        "showerror",
+        lambda title, message: messagebox_calls.append((title, message)),
+        raising=False,
+    )
+
+    workspace_controller.resume_batch_send(app)
+
+    assert app.start_calls == []
+    assert messagebox_calls == [
+        (
+            "无法恢复任务",
+            "当前载入名单与暂停任务来源不一致，请先载入 paused.csv 后再恢复。",
+        )
+    ]
+
+
+def test_resume_batch_send_logs_current_settings_warning_before_start():
+    logs = []
+    app = types.SimpleNamespace(
+        dataset=make_dataset(
+            [{"Email": "buyer@example.com", "Company": "A", "Name": "A", "Product": "P"}],
+            source_path="paused.csv",
+        ),
+        storage=FakeWorkspaceStorage(
+            latest_task={
+                "id": "123",
+                "status": "paused",
+                "source_file": "paused.csv",
+                "label": "Paused task",
+            }
+        ),
+        send_pause_event=threading.Event(),
+        start_calls=[],
+        add_log=lambda message, level="INFO": logs.append((message, level)),
+    )
+    app.start_batch_send = lambda **kwargs: app.start_calls.append(kwargs)
+
+    workspace_controller.resume_batch_send(app)
+
+    assert app.start_calls == [{"resume_task_id": 123}]
+    assert any("恢复任务将使用当前界面的发送设置" in message for message, _level in logs)
+
+
+def test_stop_batch_send_clears_pause_before_setting_stop():
+    pause_event = threading.Event()
+    stop_event = threading.Event()
+    pause_event.set()
+    app = types.SimpleNamespace(
+        send_pause_event=pause_event,
+        send_stop_event=stop_event,
+        logs=[],
+        task_status_box=FakeTextBox(),
+    )
+    app.add_log = lambda message, level="INFO": app.logs.append((message, level))
+    app.task_status_box.see = lambda _index: None
+
+    workspace_controller.stop_batch_send(app)
+
+    assert not app.send_pause_event.is_set()
+    assert app.send_stop_event.is_set()
+
+
+def test_start_batch_send_resume_forwards_governance_pause_event_and_resume_id(monkeypatch):
+    captured = {}
+
+    class ImmediateThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+            self.daemon = daemon
+
+        def start(self):
+            self.target()
+
+        def is_alive(self):
+            return False
+
+    def fake_run_batch_send(**kwargs):
+        captured.update(kwargs)
+        return 123
+
+    app = types.SimpleNamespace(
+        dataset=make_dataset(
+            [{"Email": "buyer@example.com", "Company": "A", "Name": "A", "Product": "P"}],
+            source_path="paused.csv",
+        ),
+        storage=FakeWorkspaceStorage(
+            task={
+                "id": "123",
+                "status": "paused",
+                "source_file": "paused.csv",
+                "label": "Paused task",
+            }
+        ),
+        send_thread=None,
+        send_stop_event=threading.Event(),
+        send_pause_event=threading.Event(),
+        batch_delay_entry=FakeEntry("0"),
+        batch_retries_entry=FakeEntry("1"),
+        daily_limit_entry=FakeEntry("25"),
+        hourly_limit_entry=FakeEntry("5"),
+        dedupe_policy_var=FakeVar("send"),
+        smtp_attachment_paths=["catalog.pdf"],
+        task_status_box=FakeTextBox(),
+        logs=[],
+        finish_calls=[],
+        error_calls=[],
+    )
+    app.collect_ai_settings = lambda: types.SimpleNamespace(mode="local")
+    app.get_template_text = lambda: "Subject: Hello\n\nBody"
+    app.add_log = lambda message, level="INFO": app.logs.append((message, level))
+    app.after = lambda _delay, callback: callback()
+    app._handle_batch_finish = lambda task_id: app.finish_calls.append(task_id)
+    app._handle_batch_error = lambda exc: app.error_calls.append(exc)
+
+    monkeypatch.setattr(workspace_controller.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(workspace_controller, "run_batch_send", fake_run_batch_send)
+
+    workspace_controller.start_batch_send(app, resume_task_id=123)
+
+    assert captured["governance"] == GovernanceSettings(25, 5)
+    assert captured["pause_event"] is app.send_pause_event
+    assert captured["resume_task_id"] == 123
+    assert captured["task_label"] == "Paused task"
+    assert app.finish_calls == [123]
+    assert app.error_calls == []
 
 
 def test_collect_governance_settings_rejects_invalid_limits():
