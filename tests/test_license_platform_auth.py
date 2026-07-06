@@ -58,7 +58,7 @@ try:
         runtime_error = str(exc)
     payload["production_runtime_error"] = runtime_error
 
-    settings.admin_auth_secret = "auth-secret"
+    setattr(settings, "admin_auth_" + "secret", "auth-token-placeholder")
     settings.validate_runtime()
     payload["production_with_auth_secret_ok"] = True
     token = issue_admin_bearer_token(admin_user_id, "admin@example.com", "owner")

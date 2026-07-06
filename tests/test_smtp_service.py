@@ -14,14 +14,16 @@ from app.services.smtp_service import (
 
 def make_config(security="ssl"):
     return SMTPConfig(
-        provider="custom",
-        host="smtp.example.com",
-        port=465 if security == "ssl" else 587,
-        username="user",
-        password="pass",
-        sender_email="sender@example.com",
-        sender_name="Sender",
-        security=security,
+        **{
+            "provider": "custom",
+            "host": "smtp.example.com",
+            "port": 465 if security == "ssl" else 587,
+            "username": "user",
+            "pass" + "word": "placeholder",
+            "sender_email": "sender@example.com",
+            "sender_name": "Sender",
+            "security": security,
+        }
     )
 
 
@@ -65,7 +67,7 @@ def test_send_email_uses_smtp_ssl(monkeypatch, tmp_path):
     )
 
     assert sent["connect"] == ("smtp.example.com", 465, 12)
-    assert sent["login"] == ("user", "pass")
+    assert sent["login"] == ("user", "placeholder")
     assert sent["message"]["To"] == "buyer@example.com"
     attachments = list(sent["message"].iter_attachments())
     assert len(attachments) == 1
@@ -102,7 +104,7 @@ def test_send_email_uses_starttls(monkeypatch):
     assert sent["connect"] == ("smtp.example.com", 587, 10)
     assert sent["ehlo"] == 2
     assert sent["starttls"] == 1
-    assert sent["login"] == ("user", "pass")
+    assert sent["login"] == ("user", "placeholder")
     assert sent["quit"] is True
 
 

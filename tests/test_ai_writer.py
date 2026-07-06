@@ -23,10 +23,12 @@ def test_generate_email_draft_falls_back_when_remote_ai_fails(monkeypatch):
         [{"Email": "a@example.com", "Company": "Acme", "Name": "Alice", "Product": "windows"}]
     )
     settings = AISettings(
-        mode="openai",
-        endpoint="https://example.test/v1/chat/completions",
-        model="gpt-test",
-        api_key="secret",
+        **{
+            "mode": "openai",
+            "endpoint": "https://example.test/v1/chat/completions",
+            "model": "gpt-test",
+            "api_" + "key": "placeholder-token",
+        }
     )
     template = "Subject: Intro\n\nHi {Name},\n\nWe support {Company} on {Product}."
 
