@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -127,6 +127,12 @@ def _increment_counts_for_status(
     elif status in {"skipped_duplicate", "suppressed", "rate_limited"}:
         skipped_count += 1
     return success_count, failure_count, skipped_count, review_count
+
+
+def _successful_send_timestamp(governance: GovernanceSettings) -> str:
+    if governance.quota_now:
+        return governance.quota_now
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 def _final_task_status(failure_count: int, skipped_count: int, review_count: int) -> str:
@@ -271,6 +277,7 @@ def run_batch_send(
         duplicate_count = prior_sent_counts.get(recipient_email.lower(), 0)
         subject = ""
         body = ""
+        send_result_sent_at: str | None = None
 
         decision = policy_service.evaluate(
             recipient_email=recipient_email,
@@ -322,11 +329,12 @@ def run_batch_send(
                         body=body,
                         attachment_paths=attachment_paths,
                     )
+                    send_result_sent_at = _successful_send_timestamp(governance)
                     quota_service.record_sent(
                         account.label,
                         recipient_email,
                         task_id,
-                        sent_at=governance.quota_now,
+                        sent_at=send_result_sent_at,
                     )
                     success_count, failure_count, skipped_count, review_count = (
                         _increment_counts_for_status(
@@ -402,6 +410,7 @@ def run_batch_send(
             body=body,
             status=status,
             error_message=error_message,
+            sent_at=send_result_sent_at,
         )
         storage.update_send_task(
             task_id,

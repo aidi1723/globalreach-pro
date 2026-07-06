@@ -486,8 +486,9 @@ class AppStorage:
         body: str,
         status: str,
         error_message: str = "",
+        sent_at: str | None = None,
     ):
-        now = datetime.now().isoformat(timespec="seconds")
+        timestamp = sent_at or datetime.now().isoformat(timespec="seconds")
         with self._connect() as conn:
             conn.execute(
                 """
@@ -506,7 +507,7 @@ class AppStorage:
                     body,
                     status,
                     error_message,
-                    now,
+                    timestamp,
                 ),
             )
 

@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime, timezone
 
 import pytest
 
@@ -165,6 +166,58 @@ def test_successful_send_records_usage_but_suppressed_row_does_not(monkeypatch, 
     assert send_calls == ["ok@example.com"]
     assert account_usage_count(storage, "acc-1") == 1
     assert account_usage_count(storage, "acc-2") == 0
+
+
+def test_successful_send_without_quota_now_does_not_backfill_duplicate_usage(monkeypatch, tmp_path):
+    storage = make_storage(tmp_path)
+    dataset = make_dataset(
+        [{"Email": "ok@example.com", "Company": "A", "Name": "A", "Product": "P"}]
+    )
+
+    class BatchDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            value = datetime(2026, 7, 6, 11, 0, 0, tzinfo=timezone.utc)
+            return value.replace(tzinfo=None) if tz is None else value.astimezone(tz)
+
+    class QuotaDateTime:
+        @classmethod
+        def now(cls, tz=None):
+            value = datetime(2026, 7, 6, 11, 0, 0, tzinfo=timezone.utc)
+            return value if tz is None else value.astimezone(tz)
+
+        @classmethod
+        def fromisoformat(cls, value):
+            return datetime.fromisoformat(value)
+
+    class StorageDateTime:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 7, 6, 11, 0, 1)
+
+        @classmethod
+        def fromisoformat(cls, value):
+            return datetime.fromisoformat(value)
+
+    monkeypatch.setattr("app.services.batch_sender.datetime", BatchDateTime)
+    monkeypatch.setattr("app.services.send_quota.datetime", QuotaDateTime)
+    monkeypatch.setattr("app.storage.db.datetime", StorageDateTime)
+    monkeypatch.setattr("app.services.batch_sender.generate_email_draft", stub_draft)
+    monkeypatch.setattr("app.services.batch_sender.send_email", lambda *_args, **_kwargs: None)
+
+    run_batch_send(
+        storage=storage,
+        dataset=dataset,
+        template="Subject: Hello\n\nBody",
+        ai_settings=AISettings(),
+        task_label="usage-backfill",
+        duplicate_policy="send",
+        stop_event=threading.Event(),
+    )
+
+    reopened = AppStorage(storage.db_path, secret_store=EphemeralSecretStore())
+
+    assert account_usage_count(reopened, "acc-1") == 1
 
 
 def test_smtp_failure_does_not_record_quota_usage(monkeypatch, tmp_path):
