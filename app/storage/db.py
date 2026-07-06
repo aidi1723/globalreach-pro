@@ -487,6 +487,46 @@ class AppStorage:
             for row in rows
         ]
 
+    def get_send_task(self, task_id: int) -> dict[str, str] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, label, source_file, status, total_count, success_count, failure_count,
+                       skipped_count, review_count, created_at, started_at, finished_at
+                FROM send_tasks
+                WHERE id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": str(row[0]),
+            "label": row[1],
+            "source_file": row[2],
+            "status": row[3],
+            "total_count": str(row[4]),
+            "success_count": str(row[5]),
+            "failure_count": str(row[6]),
+            "skipped_count": str(row[7]),
+            "review_count": str(row[8]),
+            "created_at": row[9],
+            "started_at": row[10],
+            "finished_at": row[11],
+        }
+
+    def list_recorded_row_indexes(self, task_id: int) -> set[int]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT row_index
+                FROM send_results
+                WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchall()
+        return {int(row[0]) for row in rows}
+
     def summarize_task_results(self, task_id: int) -> dict[str, int]:
         with self._connect() as conn:
             rows = conn.execute(

@@ -12,6 +12,9 @@ from app.services.smtp_service import (
     is_retryable_smtp_error,
     send_email,
 )
+from app.services.send_policy import SendDecision, SendPolicyService
+from app.services.send_quota import SendQuotaService
+from app.services.suppression import SuppressionService
 from app.services.template import render_template, split_subject_and_body
 from app.storage.db import AppStorage
 
@@ -46,6 +49,13 @@ class BatchSendSettings:
     retry_backoff_seconds: float = 1.0
 
 
+@dataclass
+class GovernanceSettings:
+    daily_limit_per_account: int = 0
+    hourly_limit_per_account: int = 0
+    quota_now: str | None = None
+
+
 def build_accounts_from_storage(storage: AppStorage) -> list[SMTPAccount]:
     accounts = []
     for item in storage.list_smtp_accounts():
@@ -71,6 +81,60 @@ def _build_template_draft(template: str, row: dict[str, str], dataset: LeadDatas
     return split_subject_and_body(rendered)
 
 
+def _counts_from_status_summary(summary: dict[str, int]) -> tuple[int, int, int, int]:
+    success_count = summary.get("sent", 0)
+    failure_count = summary.get("failed", 0)
+    skipped_count = (
+        summary.get("skipped_duplicate", 0)
+        + summary.get("suppressed", 0)
+        + summary.get("rate_limited", 0)
+    )
+    review_count = summary.get("review_required", 0)
+    return success_count, failure_count, skipped_count, review_count
+
+
+def _non_send_error_message(
+    decision: SendDecision,
+    raw_recipient_value: str,
+    duplicate_count: int,
+) -> str:
+    if decision.code == "invalid_email":
+        return f"收件邮箱为空或格式无效：{raw_recipient_value or '空值'}"
+    if decision.status == "review_required":
+        return f"该邮箱历史已发送 {duplicate_count} 次，等待人工审核"
+    if decision.status == "skipped_duplicate":
+        return f"该邮箱历史已发送 {duplicate_count} 次，按策略自动忽略"
+    return decision.message
+
+
+def _increment_counts_for_status(
+    status: str,
+    success_count: int,
+    failure_count: int,
+    skipped_count: int,
+    review_count: int,
+) -> tuple[int, int, int, int]:
+    if status == "sent":
+        success_count += 1
+    elif status == "failed":
+        failure_count += 1
+    elif status == "review_required":
+        review_count += 1
+    elif status in {"skipped_duplicate", "suppressed", "rate_limited"}:
+        skipped_count += 1
+    return success_count, failure_count, skipped_count, review_count
+
+
+def _final_task_status(failure_count: int, skipped_count: int, review_count: int) -> str:
+    if failure_count:
+        return "completed_with_errors"
+    if review_count:
+        return "completed_with_review"
+    if skipped_count:
+        return "completed_with_skips"
+    return "completed"
+
+
 def run_batch_send(
     storage: AppStorage,
     dataset: LeadDataset,
@@ -82,8 +146,18 @@ def run_batch_send(
     attachment_paths: list[str] | None = None,
     settings: BatchSendSettings | None = None,
     progress_callback: Callable[[BatchProgress], None] | None = None,
+    governance: GovernanceSettings | None = None,
+    pause_event=None,
+    resume_task_id: int | None = None,
 ) -> int:
     settings = settings or BatchSendSettings()
+    governance = governance or GovernanceSettings()
+    quota_service = SendQuotaService(storage)
+    policy_service = SendPolicyService(
+        storage,
+        SuppressionService(storage),
+        quota_service,
+    )
     accounts = build_accounts_from_storage(storage)
     if not accounts:
         raise BatchSendError("账号池为空，请先保存至少一个 SMTP 账号。")
@@ -92,21 +166,44 @@ def run_batch_send(
     if not email_header:
         raise BatchSendError("当前名单没有映射邮箱字段，无法批量发送。")
 
-    task_id = storage.create_send_task(task_label, dataset.source_path, dataset.total_rows)
+    if resume_task_id is not None:
+        task = storage.get_send_task(resume_task_id)
+        if task is None:
+            raise BatchSendError("要恢复的任务不存在。")
+        task_id = resume_task_id
+        recorded_row_indexes = storage.list_recorded_row_indexes(task_id)
+        success_count, failure_count, skipped_count, review_count = _counts_from_status_summary(
+            storage.summarize_task_results(task_id)
+        )
+    else:
+        task = None
+        task_id = storage.create_send_task(task_label, dataset.source_path, dataset.total_rows)
+        recorded_row_indexes = set()
+        success_count = 0
+        failure_count = 0
+        skipped_count = 0
+        review_count = 0
+
     started_at = datetime.now().isoformat(timespec="seconds")
-    storage.update_send_task(task_id, "running", 0, 0, started_at=started_at)
+    storage.update_send_task(
+        task_id,
+        "running",
+        success_count,
+        failure_count,
+        skipped_count=skipped_count,
+        review_count=review_count,
+        started_at="" if task and task.get("started_at") else started_at,
+    )
     normalized_recipient_emails = [
         extract_email_address(row.get(email_header, ""))
         for row in dataset.rows
     ]
     prior_sent_counts = storage.list_prior_sent_counts(normalized_recipient_emails)
 
-    success_count = 0
-    failure_count = 0
-    skipped_count = 0
-    review_count = 0
-
     for index, row in enumerate(dataset.rows):
+        if index in recorded_row_indexes:
+            continue
+
         if stop_event.is_set():
             storage.update_send_task(
                 task_id,
@@ -123,31 +220,34 @@ def run_batch_send(
         recipient_email = normalized_recipient_emails[index]
         status = "sent"
         error_message = ""
-        duplicate_count = 0
+        duplicate_count = prior_sent_counts.get(recipient_email.lower(), 0)
         subject = ""
         body = ""
 
-        if not recipient_email:
-            status = "failed"
-            error_message = f"收件邮箱为空或格式无效：{raw_recipient_value or '空值'}"
-            failure_count += 1
+        decision = policy_service.evaluate(
+            recipient_email=recipient_email,
+            duplicate_count=duplicate_count,
+            duplicate_policy=duplicate_policy,
+            account_label=account.label,
+            daily_limit=governance.daily_limit_per_account,
+            hourly_limit=governance.hourly_limit_per_account,
+            now=governance.quota_now,
+        )
+        if decision.should_send:
+            draft = generate_email_draft(template, row, dataset, index, ai_settings)
+            subject = draft.subject
+            body = draft.body
         else:
-            duplicate_count = prior_sent_counts.get(recipient_email.lower(), 0)
-            if duplicate_count > 0:
-                if duplicate_policy == "review":
-                    status = "review_required"
-                    error_message = f"该邮箱历史已发送 {duplicate_count} 次，等待人工审核"
-                    review_count += 1
-                elif duplicate_policy == "skip":
-                    status = "skipped_duplicate"
-                    error_message = f"该邮箱历史已发送 {duplicate_count} 次，按策略自动忽略"
-                    skipped_count += 1
-            if status == "sent":
-                draft = generate_email_draft(template, row, dataset, index, ai_settings)
-                subject = draft.subject
-                body = draft.body
-            else:
-                subject, body = _build_template_draft(template, row, dataset)
+            status = decision.status
+            error_message = _non_send_error_message(decision, raw_recipient_value, duplicate_count)
+            subject, body = _build_template_draft(template, row, dataset)
+            success_count, failure_count, skipped_count, review_count = _increment_counts_for_status(
+                status,
+                success_count,
+                failure_count,
+                skipped_count,
+                review_count,
+            )
 
         if status == "sent":
             max_attempts = max(1, settings.max_retries + 1)
@@ -174,7 +274,21 @@ def run_batch_send(
                         body=body,
                         attachment_paths=attachment_paths,
                     )
-                    success_count += 1
+                    quota_service.record_sent(
+                        account.label,
+                        recipient_email,
+                        task_id,
+                        sent_at=governance.quota_now,
+                    )
+                    success_count, failure_count, skipped_count, review_count = (
+                        _increment_counts_for_status(
+                            "sent",
+                            success_count,
+                            failure_count,
+                            skipped_count,
+                            review_count,
+                        )
+                    )
                     prior_sent_counts[recipient_email.lower()] = duplicate_count + 1
                     status = "sent"
                     error_message = ""
@@ -211,12 +325,26 @@ def run_batch_send(
 
                     status = "failed"
                     error_message = final_error
-                    failure_count += 1
+                    success_count, failure_count, skipped_count, review_count = (
+                        _increment_counts_for_status(
+                            "failed",
+                            success_count,
+                            failure_count,
+                            skipped_count,
+                            review_count,
+                        )
+                    )
                     break
             else:
                 status = "failed"
                 error_message = final_error or "SMTP 发送失败。"
-                failure_count += 1
+                success_count, failure_count, skipped_count, review_count = _increment_counts_for_status(
+                    "failed",
+                    success_count,
+                    failure_count,
+                    skipped_count,
+                    review_count,
+                )
         storage.add_send_result(
             task_id=task_id,
             row_index=index,
@@ -249,6 +377,17 @@ def run_batch_send(
                 )
             )
 
+        if pause_event is not None and pause_event.is_set():
+            storage.update_send_task(
+                task_id,
+                "paused",
+                success_count,
+                failure_count,
+                skipped_count=skipped_count,
+                review_count=review_count,
+            )
+            return task_id
+
         if settings.per_email_delay_seconds > 0 and index < dataset.total_rows - 1:
             if stop_event.wait(settings.per_email_delay_seconds):
                 storage.update_send_task(
@@ -261,15 +400,11 @@ def run_batch_send(
                 )
                 return task_id
 
+    success_count, failure_count, skipped_count, review_count = _counts_from_status_summary(
+        storage.summarize_task_results(task_id)
+    )
     finished_at = datetime.now().isoformat(timespec="seconds")
-    if failure_count:
-        final_status = "completed_with_errors"
-    elif review_count:
-        final_status = "completed_with_review"
-    elif skipped_count:
-        final_status = "completed_with_skips"
-    else:
-        final_status = "completed"
+    final_status = _final_task_status(failure_count, skipped_count, review_count)
     storage.update_send_task(
         task_id,
         final_status,
