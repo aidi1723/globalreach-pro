@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.storage.db import AppStorage
 
@@ -13,10 +13,19 @@ class QuotaDecision:
     message: str = ""
 
 
-def _parse_now(now: str | None = None) -> datetime:
-    if now:
-        return datetime.fromisoformat(now)
-    return datetime.now()
+def _quota_datetime(value: str | None = None) -> datetime:
+    parsed = datetime.fromisoformat(value) if value else datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_quota_datetime(value: datetime) -> str:
+    return value.replace(tzinfo=None).isoformat(timespec="seconds")
+
+
+def _quota_timestamp(value: str | None = None) -> str:
+    return _format_quota_datetime(_quota_datetime(value))
 
 
 class SendQuotaService:
@@ -30,10 +39,10 @@ class SendQuotaService:
         hourly_limit: int = 0,
         now: str | None = None,
     ) -> QuotaDecision:
-        current = _parse_now(now)
-        current_at = current.isoformat(timespec="seconds")
+        current = _quota_datetime(now)
+        current_at = _format_quota_datetime(current)
         if daily_limit > 0:
-            day_start = (current - timedelta(days=1)).isoformat(timespec="seconds")
+            day_start = _format_quota_datetime(current - timedelta(days=1))
             daily_count = self.storage.count_account_usage_between(
                 account_label,
                 day_start,
@@ -46,7 +55,7 @@ class SendQuotaService:
                     f"{account_label} 已达到每日发送上限 {daily_limit}。",
                 )
         if hourly_limit > 0:
-            hour_start = (current - timedelta(hours=1)).isoformat(timespec="seconds")
+            hour_start = _format_quota_datetime(current - timedelta(hours=1))
             hourly_count = self.storage.count_account_usage_between(
                 account_label,
                 hour_start,
@@ -67,5 +76,5 @@ class SendQuotaService:
         task_id: int,
         sent_at: str | None = None,
     ) -> None:
-        timestamp = sent_at or datetime.now().isoformat(timespec="seconds")
+        timestamp = _quota_timestamp(sent_at)
         self.storage.add_account_send_usage(account_label, recipient_email, task_id, timestamp)

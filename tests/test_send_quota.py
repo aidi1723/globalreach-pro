@@ -54,3 +54,46 @@ def test_future_usage_does_not_count_against_quota(tmp_path):
     allowed = quota.check("acc-1", daily_limit=1, hourly_limit=1, now="2026-07-06T11:00:00")
 
     assert allowed.allowed is True
+
+
+def test_offset_aware_future_usage_does_not_count_against_quota(tmp_path):
+    storage = make_storage(tmp_path)
+    quota = SendQuotaService(storage)
+    quota.record_sent("acc-1", "future@example.com", task_id=1, sent_at="2026-07-06T04:00:00+00:00")
+
+    allowed = quota.check("acc-1", daily_limit=1, hourly_limit=1, now="2026-07-06T11:00:00+08:00")
+
+    assert allowed.allowed is True
+
+
+def test_offset_aware_hourly_usage_counts_inside_window(tmp_path):
+    storage = make_storage(tmp_path)
+    quota = SendQuotaService(storage)
+    quota.record_sent("acc-1", "recent@example.com", task_id=1, sent_at="2026-07-06T02:30:00+00:00")
+
+    blocked = quota.check("acc-1", daily_limit=0, hourly_limit=1, now="2026-07-06T11:00:00+08:00")
+
+    assert blocked.allowed is False
+    assert blocked.code == "hourly_limit_reached"
+
+
+def test_disabled_limits_allow_even_with_usage(tmp_path):
+    storage = make_storage(tmp_path)
+    quota = SendQuotaService(storage)
+    quota.record_sent("acc-1", "a@example.com", task_id=1, sent_at="2026-07-06T10:00:00")
+    quota.record_sent("acc-1", "b@example.com", task_id=1, sent_at="2026-07-06T10:30:00")
+
+    allowed = quota.check("acc-1", daily_limit=0, hourly_limit=0, now="2026-07-06T11:00:00")
+
+    assert allowed.allowed is True
+
+
+def test_hourly_quota_includes_exact_window_start(tmp_path):
+    storage = make_storage(tmp_path)
+    quota = SendQuotaService(storage)
+    quota.record_sent("acc-1", "boundary@example.com", task_id=1, sent_at="2026-07-06T10:00:00")
+
+    blocked = quota.check("acc-1", daily_limit=0, hourly_limit=1, now="2026-07-06T11:00:00")
+
+    assert blocked.allowed is False
+    assert blocked.code == "hourly_limit_reached"
