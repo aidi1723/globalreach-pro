@@ -26,6 +26,15 @@ def _canonical_quota_timestamp(value: str) -> str:
     return parsed.replace(tzinfo=None).isoformat(timespec="seconds")
 
 
+def _canonical_legacy_result_timestamp(value: str) -> str:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone(timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.replace(tzinfo=None).isoformat(timespec="seconds")
+
+
 class AppStorage:
     def __init__(self, db_path: Path, secret_store: SecretStore | None = None):
         self.db_path = Path(db_path)
@@ -190,8 +199,21 @@ class AppStorage:
             """
         ).fetchall()
         for account_label, recipient_email, task_id, sent_at in rows:
+            raw_sent_at = str(sent_at)
             try:
-                canonical_sent_at = _canonical_quota_timestamp(str(sent_at))
+                modern_sent_at = _canonical_quota_timestamp(raw_sent_at)
+            except (TypeError, ValueError):
+                continue
+            if self._account_send_usage_exists(
+                conn,
+                account_label,
+                recipient_email,
+                task_id,
+                modern_sent_at,
+            ):
+                continue
+            try:
+                canonical_sent_at = _canonical_legacy_result_timestamp(raw_sent_at)
             except (TypeError, ValueError):
                 continue
             conn.execute(
@@ -218,6 +240,28 @@ class AppStorage:
                     canonical_sent_at,
                 ),
             )
+
+    def _account_send_usage_exists(
+        self,
+        conn,
+        account_label: str,
+        recipient_email: str,
+        task_id: int,
+        sent_at: str,
+    ) -> bool:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM account_send_usage
+            WHERE account_label = ?
+              AND recipient_email = ? COLLATE NOCASE
+              AND task_id = ?
+              AND sent_at = ?
+            LIMIT 1
+            """,
+            (account_label, recipient_email, task_id, sent_at),
+        ).fetchone()
+        return row is not None
 
     def _secret_ref(self, key: str) -> str:
         return SECRET_REF_PREFIX + quote(key, safe="")

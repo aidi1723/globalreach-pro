@@ -1,4 +1,8 @@
+import os
 import sqlite3
+import time
+
+import pytest
 
 from app.services.secret_store import EphemeralSecretStore
 from app.services.send_quota import SendQuotaService
@@ -235,6 +239,33 @@ def test_init_backfills_legacy_sent_results_into_account_usage(tmp_path):
     assert blocked.allowed is False
     assert blocked.code == "daily_limit_reached"
     assert row == ("acc-legacy", "Buyer@Example.com", 1, "2026-07-06T02:30:00")
+
+
+def test_init_backfills_legacy_naive_sent_at_as_local_time(monkeypatch, tmp_path):
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset is required for deterministic local-time migration coverage")
+    original_tz = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    time.tzset()
+    try:
+        db_path = tmp_path / "quota.db"
+        create_legacy_quota_db(db_path, sent_at="2026-07-06T10:30:00")
+
+        storage = AppStorage(db_path, secret_store=EphemeralSecretStore())
+        quota = SendQuotaService(storage)
+
+        blocked = quota.check("acc-legacy", daily_limit=1, hourly_limit=0, now="2026-07-06T03:00:00")
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute("SELECT sent_at FROM account_send_usage").fetchone()
+
+        assert blocked.allowed is False
+        assert row[0] == "2026-07-06T02:30:00"
+    finally:
+        if original_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", original_tz)
+        time.tzset()
 
 
 def test_init_backfills_legacy_sent_results_idempotently(tmp_path):
