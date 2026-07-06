@@ -11,6 +11,8 @@ GlobalReach PRO is a desktop workbench for B2B outreach email preparation and SM
 - Tests SMTP delivery and supports common provider presets.
 - Sends batch emails through a saved SMTP account pool with account rotation.
 - Supports attachments, per-email delay, retry on transient SMTP errors, stop control, duplicate-recipient policy, and send-result history.
+- Applies send-governance checks before SMTP delivery: suppression list, duplicate policy, and per-account send limits.
+- Supports pausing and resuming batch tasks without re-sending completed rows.
 - Includes an optional license-platform service for commercial/server-license deployments.
 
 ## What It Is Not

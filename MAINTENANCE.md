@@ -131,7 +131,7 @@ Expected result:
 These are not blockers for the current open-source release, but they are the next responsible maintenance items:
 
 - add OS keychain/keyring storage for SMTP account-pool passwords
-- add suppression-list support before positioning the app as a production outreach sender
+- validate suppression-list and pause/resume behavior with a real desktop install before public binary distribution
 - add screenshots using fake data only
 - add a sample lead CSV with fake data
 - add `CONTRIBUTING.md` if outside contributors are expected
