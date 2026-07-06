@@ -136,6 +136,29 @@ class AppStorage:
                 ON suppression_entries(recipient_email COLLATE NOCASE)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS account_send_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_label TEXT NOT NULL,
+                    recipient_email TEXT NOT NULL,
+                    task_id INTEGER NOT NULL,
+                    sent_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_account_send_usage_account_sent_at
+                ON account_send_usage(account_label, sent_at)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_account_send_usage_recipient
+                ON account_send_usage(recipient_email COLLATE NOCASE)
+                """
+            )
             self._ensure_column(conn, "send_tasks", "skipped_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "send_tasks", "review_count", "INTEGER NOT NULL DEFAULT 0")
             self._migrate_plaintext_secrets(conn)
@@ -555,6 +578,35 @@ class AppStorage:
         with self._connect() as conn:
             rows = conn.execute(query, tuple(normalized_recipients)).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
+
+    def add_account_send_usage(
+        self,
+        account_label: str,
+        recipient_email: str,
+        task_id: int,
+        sent_at: str,
+    ):
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO account_send_usage(account_label, recipient_email, task_id, sent_at)
+                VALUES(?, ?, ?, ?)
+                """,
+                (account_label, recipient_email.strip().lower(), task_id, sent_at),
+            )
+
+    def count_account_usage_since(self, account_label: str, since: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM account_send_usage
+                WHERE account_label = ?
+                  AND sent_at >= ?
+                """,
+                (account_label, since),
+            ).fetchone()
+        return int(row[0]) if row else 0
 
     def upsert_suppression_entry(
         self,
